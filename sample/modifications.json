@@ -1,0 +1,23 @@
+{
+  "customers": {
+    "2": {
+      "quote": true,
+      "format": "firstName"
+    },
+    "3": {
+      "quote": true,
+      "format": "lastName"
+    },
+    "4": {
+      "quote": true,
+      "format": "email",
+      "unique": true
+    },
+    "5": {
+      "quote": true,
+      "format": "phoneNumber",
+      "optional": true,
+      "optional_weight": 0.9
+    }
+  }
+}

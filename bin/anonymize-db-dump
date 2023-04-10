@@ -1,0 +1,89 @@
+#!/bin/env php
+<?php
+
+/**
+ * Script to anonymize a dump db file with fake data
+ *
+ * Usage:
+ * $ php bin/anonymize.php [OPTIONS]
+ *
+ * Available options:
+ * -i | --input=FILE                   to inform the input file (dump file of MySQL)
+ * -o | --output=FILE                  to inform the output file
+ * -s | --stdout                       to generate the output in the STDOUT
+ * -m | --modifications=MODIFICATIONS  to inform the JSON of expected modifications
+ * -l | --locale=LOCALE                to inform the locale to be used by Faker
+ * -q | --quiet                        to ommit messages
+ *
+ * Example of JSON for modification:
+ * {
+ *   "customer": {
+ *     "2": {"type": "int", "format": "numberBetween", "args": [1, 10]},
+ *     "5": {"type": "string", "format": "firstName"},
+ *     "6": {"type": "string", "format": "lastName"}
+ *   }
+ * }
+ *
+ * The example above will replace:
+ * the column 2 of the table 'customer' witn a random integer beween 1 and 10
+ * the column 5 of the table 'customer' with a fake first name (delimited by quotes)
+ * the column 6 of the table 'customer' with a fake last name (delimited by quotes)
+ *
+ * Note: the format and args are available accordingly to the Faker library
+ *
+ * Important: this script is not a complete MySQL parser. It assumes some formating standards.
+ * For example: it only modifies a statement if the line starts with "INSERT INTO `table` VALUES ("
+ * and preserves the other lines. Note that the INSERT statement may have multiple lines
+ * and all of them will be replaced (only the statement must start in a new line).
+ */
+
+require(__DIR__ . '/../vendor/autoload.php');
+
+$inputFileHandler = null;
+$outputFileHandler = null;
+
+try {
+    // Receive / Vaildate CLI params
+    $opts = getopt('i:o:sl:m:q', ['input:', 'output:', 'stdout', 'locale:', 'modifications:', 'quiet']);
+
+    $inputFilename = $opts['i'] ?? $opts['input'] ?? null;
+    $outputFilename = $opts['o'] ?? $opts['output'] ?? null;
+    $stdout = is_bool($opts['s'] ?? $opts['stdout'] ?? null);
+    $locale = $opts['l'] ?? $opts['locale'] ?? 'en_US';
+    $modifications = $opts['m'] ?? $opts['modifications'] ?? null;
+    $quiet = is_bool($opts['q'] ?? $opts['quiet'] ?? null);
+
+    if (empty($inputFilename)) {
+        throw new \RuntimeException('Missing argument --input');
+    }
+    if (!$stdout && empty($outputFilename)) {
+        throw new \RuntimeException('Missing argument --output or --stdout');
+    }
+    if (empty($modifications)) {
+        throw new \RuntimeException('Missing argument --modifications');
+    }
+
+    // Prepare data
+    $modificationsSpec = json_decode($modifications, true);
+    if ($modificationsSpec === false) {
+        throw new \RuntimeException('Failed to parse JSON argument "Modifications Spec"');
+    }
+
+    $inputFileHandler = fopen($inputFilename, 'rb');
+    $outputFileHandler = $stdout ? STDOUT : fopen($outputFilename, 'wb');
+
+    // Execute
+    $anonymizer = new \Printi\DbDumpFileAnonymizer($inputFileHandler, $outputFileHandler, $locale, $modificationsSpec, $quiet);
+    $anonymizer->execute();
+    exit(0);
+} catch (\Throwable $e) {
+    fprintf(STDERR, "Failed to execute anonymization process: %s\n", $e->getMessage());
+    exit(1);
+} finally {
+    if ($inputFileHandler) {
+        fclose($inputFileHandler);
+    }
+    if ($outputFileHandler) {
+        fclose($outputFileHandler);
+    }
+}
