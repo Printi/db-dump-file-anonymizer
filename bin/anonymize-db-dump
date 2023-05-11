@@ -3,87 +3,177 @@
 
 /**
  * Script to anonymize a dump db file with fake data
- *
- * Usage:
- * $ php bin/anonymize.php [OPTIONS]
- *
- * Available options:
- * -i | --input=FILE                   to inform the input file (dump file of MySQL)
- * -o | --output=FILE                  to inform the output file
- * -s | --stdout                       to generate the output in the STDOUT
- * -m | --modifications=MODIFICATIONS  to inform the JSON of expected modifications
- * -l | --locale=LOCALE                to inform the locale to be used by Faker
- * -q | --quiet                        to ommit messages
- *
- * Example of JSON for modification:
- * {
- *   "customer": {
- *     "2": {"type": "int", "format": "numberBetween", "args": [1, 10]},
- *     "5": {"type": "string", "format": "firstName"},
- *     "6": {"type": "string", "format": "lastName"}
- *   }
- * }
- *
- * The example above will replace:
- * the column 2 of the table 'customer' witn a random integer beween 1 and 10
- * the column 5 of the table 'customer' with a fake first name (delimited by quotes)
- * the column 6 of the table 'customer' with a fake last name (delimited by quotes)
- *
- * Note: the format and args are available accordingly to the Faker library
- *
- * Important: this script is not a complete MySQL parser. It assumes some formating standards.
- * For example: it only modifies a statement if the line starts with "INSERT INTO `table` VALUES ("
- * and preserves the other lines. Note that the INSERT statement may have multiple lines
- * and all of them will be replaced (only the statement must start in a new line).
  */
 
 require(__DIR__ . '/../vendor/autoload.php');
 
-$inputFileHandler = null;
-$outputFileHandler = null;
+$inputStream = null;
+$outputStream = null;
+
+$helpMessage = <<<EOT
+Script to anonymize a dump db file with fake data.
+
+Usage:
+$ php bin/anonymize-db-dump [OPTIONS]
+
+Available options:
+ -h | --help                         to show the help
+ -i | --input=FILE                   to inform the input file (dump file of MySQL)
+      --stdin                        to read input from STDIN
+ -o | --output=FILE                  to inform the output file
+      --stdout                       to write the output in the STDOUT
+ -m | --modifications=MODIFICATIONS  to inform the JSON of expected modifications
+ -f | --modifications-file=FILE      to inform the JSON file with expected modifications
+ -l | --locale=LOCALE                to inform the locale to be used by Faker
+ -q | --quiet                        to ommit messages
+ -r | --read-buffer-size=SIZE        to inform the read buffer size (example: 100, 1KB, 1MB, 1GB)
+ -w | --write-buffer-size=SIZE       to inform the write buffer size (example: 100, 1KB, 1MB, 1GB)
+
+It is required to inform at least these options to run:
+ * an input using --input or --stdin
+ * an output using --output or --stdout
+ * a modification spec using --modifications or --modifications-file
+
+Example of JSON for modifications:
+{
+  "customer": {
+    "2": {"type": "int", "format": "numberBetween", "args": [1, 10]},
+    "5": {"type": "string", "format": "firstName"},
+    "6": {"type": "string", "format": "lastName"}
+  }
+}
+
+The example above will replace:
+ * the column 2 of the table 'customer' with a random integer beween 1 and 10
+ * the column 5 of the table 'customer' with a fake first name (delimited by quotes)
+ * the column 6 of the table 'customer' with a fake last name (delimited by quotes)
+
+Note: the format and args are available accordingly to the Faker library.
+
+Important: this script is not a complete MySQL parser. It assumes some formating standards.
+For example: it only modifies a statement if the line starts with the pattern:
+"INSERT INTO `table` VALUES ("
+and it preserves the other lines.
+Note that the INSERT statement may have multiple lines and all of them will be replaced
+but the INSERT statement must start in a new line to be detected.
+EOT;
 
 try {
     // Receive / Vaildate CLI params
-    $opts = getopt('i:o:sl:m:q', ['input:', 'output:', 'stdout', 'locale:', 'modifications:', 'quiet']);
+    $opts = getopt(
+        'hi:o:l:m:f:qr:w:',
+        [
+            'help',
+            'input:',
+            'output:',
+            'stdin',
+            'stdout',
+            'locale:',
+            'modifications:',
+            'modifications-file:',
+            'quiet',
+            'read-buffer-size:',
+            'write-buffer-size:',
+        ]
+    );
+
+    if (is_bool($opts['h'] ?? $opts['help'] ?? null)) {
+        fprintf(STDOUT, "%s\n", $helpMessage);
+        exit(0);
+    }
+
+    if (empty($opts)) {
+        throw new \RuntimeException('Missing arguments. Check the help using --help or -h');
+    }
 
     $inputFilename = $opts['i'] ?? $opts['input'] ?? null;
     $outputFilename = $opts['o'] ?? $opts['output'] ?? null;
-    $stdout = is_bool($opts['s'] ?? $opts['stdout'] ?? null);
-    $locale = $opts['l'] ?? $opts['locale'] ?? 'en_US';
+    $stdin = is_bool($opts['stdin'] ?? null);
+    $stdout = is_bool($opts['stdout'] ?? null);
     $modifications = $opts['m'] ?? $opts['modifications'] ?? null;
-    $quiet = is_bool($opts['q'] ?? $opts['quiet'] ?? null);
+    $modificationsFile = $opts['f'] ?? $opts['modifications-file'] ?? null;
 
-    if (empty($inputFilename)) {
-        throw new \RuntimeException('Missing argument --input');
+    if (!$stdin && empty($inputFilename)) {
+        throw new \RuntimeException('Missing argument --input or --stdin');
+    }
+    if ($stdin && $inputFilename) {
+        throw new \RuntimeException('Arguments --input and --stdin are exclusive');
     }
     if (!$stdout && empty($outputFilename)) {
         throw new \RuntimeException('Missing argument --output or --stdout');
     }
+    if ($stdout && $outputFilename) {
+        throw new \RuntimeException('Arguments --output and --stdout are exclusive');
+    }
+    if ($modificationsFile && $modifications) {
+        throw new \RuntimeException('Arguments --modifications-file and --modifications are exclusive');
+    }
+    if (!empty($modificationsFile)) {
+        if (!is_file($modificationsFile)) {
+            throw new \RuntimeException('The modifications file does not exist');
+        }
+        if (!is_readable($modificationsFile)) {
+            throw new \RuntimeException('The modifications file is not readable');
+        }
+        $modifications = file_get_contents($modificationsFile);
+    }
     if (empty($modifications)) {
         throw new \RuntimeException('Missing argument --modifications');
     }
-
-    // Prepare data
     $modificationsSpec = json_decode($modifications, true);
     if ($modificationsSpec === false) {
         throw new \RuntimeException('Failed to parse JSON argument "Modifications Spec"');
     }
 
-    $inputFileHandler = fopen($inputFilename, 'rb');
-    $outputFileHandler = $stdout ? STDOUT : fopen($outputFilename, 'wb');
+    // Prepare data
+    $convertBytes = static function ($size) {
+        $size = strtr($size, ['b' => '', 'B' => '', ' ' => '']);
+
+        return (int) (new \Byte\ByteConverter())->getBytes($size);
+    };
+
+    $rawConfig = array_filter(
+        [
+            'quiet' => is_bool($opts['q'] ?? $opts['quiet'] ?? null),
+            'locale' => $opts['l'] ?? $opts['locale'] ?? null,
+            'read_buffer_size' => $opts['r'] ?? $opts['read-buffer-size'] ?? null,
+            'write_buffer_size' => $opts['w'] ?? $opts['write-buffer-size'] ?? null,
+            'modifications_spec' => $modificationsSpec,
+        ],
+        fn($v) => !is_null($v),
+    );
+    if (isset($rawConfig['read_buffer_size'])) {
+        $rawConfig['read_buffer_size'] = ctype_digit($rawConfig['read_buffer_size'])
+            ? (int) $rawConfig['read_buffer_size']
+            : (int) $convertBytes($rawConfig['read_buffer_size']);
+    }
+    if (isset($rawConfig['write_buffer_size'])) {
+        $rawConfig['write_buffer_size'] = ctype_digit($rawConfig['write_buffer_size'])
+            ? (int) $rawConfig['write_buffer_size']
+            : $convertBytes($rawConfig['write_buffer_size']);
+    }
+    $config = new \Printi\DbDumpFile\Anonymizer\Config($rawConfig);
+
+    $inputStream = $stdin ? STDIN : fopen($inputFilename, 'rb');
+    $outputStream = $stdout ? STDOUT : fopen($outputFilename, 'wb');
 
     // Execute
-    $anonymizer = new \Printi\DbDumpFileAnonymizer($inputFileHandler, $outputFileHandler, $locale, $modificationsSpec, $quiet);
+    $anonymizer = new \Printi\DbDumpFile\Anonymizer($inputStream, $outputStream, $config);
     $anonymizer->execute();
     exit(0);
 } catch (\Throwable $e) {
-    fprintf(STDERR, "Failed to execute anonymization process: %s\n", $e->getMessage());
+    fprintf(
+        STDERR,
+        "Failed to execute anonymization process: %s\nTrace:\n%s\n",
+        $e->getMessage(),
+        $e->getTraceAsString(),
+    );
     exit(1);
 } finally {
-    if ($inputFileHandler) {
-        fclose($inputFileHandler);
+    if ($inputStream) {
+        fclose($inputStream);
     }
-    if ($outputFileHandler) {
-        fclose($outputFileHandler);
+    if ($outputStream) {
+        fclose($outputStream);
     }
 }

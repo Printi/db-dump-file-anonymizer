@@ -1,3 +1,4 @@
 vendor
 sample/dump.out.sql
 var
+*.swp

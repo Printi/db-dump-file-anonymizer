@@ -53,6 +53,7 @@ LOCK TABLES `customers` WRITE;
 /*!40000 ALTER TABLE `customers` DISABLE KEYS */;
 INSERT INTO `customers` VALUES (1,'Rubens','Takiguti Ribeiro','rubens.ribeiro@fakedomain.com','+55 (11) 99999-9999'),(2,'Guilherme','Brito','guilherme.brito@fakedomain.com',NULL),
 (3,'Alessandro','Ferreira','alessandro.ferreira@fakedomain.com','+55 (31) 98888-8888');
+INSERT INTO `customers` VALUES (4,'Outro','Nome','other.name@fakedomain.com',null);
 /*!40000 ALTER TABLE `customers` ENABLE KEYS */;
 UNLOCK TABLES;
 

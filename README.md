@@ -2,11 +2,11 @@
 
 ## Overview
 
-This PHP library is able to anonymize a DB dump file. It is especially useful to apply anonymization when restoring a live DB in a non-live env. This way, if your non-live DB is stolen, you do not have risks to be exposing real customer data, for example.
+This PHP library can anonymize a database dump file, making it particularly useful for anonymizing data when restoring a live database in a non-live environment. This helps mitigate the risk of exposing real customer data if the non-live database is stolen, for example.
 
 ## How it works
 
-It reads a file with the DB dump in the local storage, then it produces a new DB dump file (or outputs in STDOUT) based on the instructions about which columns should be anonymized.
+It reads a file with the DB dump in the local storage (or from STDIN), then it produces a new DB dump file (or outputs in STDOUT) based on the instructions about which columns should be anonymized.
 
 It is much faster than trying to run multiple `UPDATE` requests to a running DB, because the DB needs to handle with many things like: checking the uniqueness of some columns, indexing, and stuff like that.
 
@@ -28,29 +28,40 @@ The script can be called this way:
 $ ./vendor/bin/anonymize-db-dump [OPTIONS]
 ```
 
-These are the available options
+These are the available options:
 
- * -i | --input=FILE                   to inform the input file (dump file of MySQL)
- * -o | --output=FILE                  to inform the output file
- * -s | --stdout                       to generate the output in the STDOUT
- * -m | --modifications=MODIFICATIONS  to inform the JSON of expected modifications
- * -l | --locale=LOCALE                to inform the locale to be used by Faker
- * -q | --quiet                        to ommit messages
+ * `-h | --help`                         to show the help
+ * `-i | --input=FILE`                   to inform the input file (dump file of MySQL)
+ * `--stdin`                             to read input from STDIN
+ * `-o | --output=FILE`                  to inform the output file
+ * `--stdout`                            to write the output in the STDOUT
+ * `-m | --modifications=MODIFICATIONS`  to inform the JSON of expected modifications
+ * `-f | --modifications-file=FILE`      to inform the JSON file with expected modifications
+ * `-l | --locale=LOCALE`                to inform the locale to be used by Faker
+ * `-q | --quiet`                        to ommit messages
+ * `-r | --read-buffer-size=SIZE`        to inform the read buffer size (example: 100, 1KB, 1MB, 1GB)
+ * `-w | --write-buffer-size=SIZE`       to inform the write buffer size (example: 100, 1KB, 1MB, 1GB)
 
-This library uses [Faker](https://fakerphp.github.io/) to generate the fake (anonymous) data. You will need to check the library to see the available options of formatters and locales.
+This library uses [Faker](https://fakerphp.github.io/) to generate the fake (anonymous) data. You will need to check the library to see the available options of formatters, arguments for formatters and locales.
 
 Simple example:
 
 ```
-$ php ./vendor/bin/anonymize-db-dump -i ./sample/dump.sql -o ./sample/dump.out.sql -m "$(cat ./sample/modifications.json)" -l pt_BR
+$ php ./vendor/bin/anonymize-db-dump -i ./sample/dump.sql -o ./sample/dump.out.sql -f ./sample/modifications.json -l pt_BR
 ```
 
-The example above will read the file `./sample/dump.sql`, then produce a modified dump file `./sample/dump.out.sql` using the modifications specified in the file `./sample/modifications.json` and using the locale `pt_BR` (Brazilian Portuguese) to generate the fake data with localization.
+The example above will read the file `./sample/dump.sql`, then produce a modified dump file `./sample/dump.out.sql` using the modification instructions specified in the file `./sample/modifications.json` and using the locale `pt_BR` (Brazilian Portuguese) to generate the fake data with localization.
 
-If you want to generate the modified dump file in the STDOUT, you may replace `-o ./sample/dump.out.sql` by `-s` or `--stdout`. This option is useful if you do not want to store the modified dump file and use the modified dump file directly to the mysql command to restore the data like the example bellow:
+If you want to generate the modified dump file in the STDOUT, you may replace `-o ./sample/dump.out.sql` by `--stdout`. This option is useful if you do not want to store the modified dump file and use the modified dump file directly to the mysql command to restore the data like the example bellow:
 
 ```
-$ php ./vendor/bin/anonymize-db-dump -i ./sample/dump.sql -s -m "$(cat ./sample/modifications.json)" -l pt_BR | mysql -uroot -proot -h localhost -D dbname
+$ php ./vendor/bin/anonymize-db-dump -i ./sample/dump.sql --stdout -f ./sample/modifications.json -l pt_BR | mysql -uroot -proot -h localhost -D dbname
+```
+
+If you want to generate the modified dump file from the STDIN, you may replace `-i ./sample/dump.sql` by `--stdin`. This option is useful if you are getting the dump file from `mysqldump` directly like the example bellow:
+
+```
+$ mysqldump ... | php ./vendor/bin/anonymize-db-dump --stdin --o ./sample/dump.out.sql -f ./sample/modifications.json -l pt_BR
 ```
 
 ## Specification of the JSON of modifications
@@ -63,9 +74,11 @@ The JSON to specify the modifications over the dump file uses this structure:
     "<COLUMN_POSITION>": {
       "quote": <BOOLEAN_VALUE>,
       "format": <STRING_VALUE>,
+      "args": <ARRAY_OF_ARGS>,
       "unique": <BOOLEAN_VALUE>,
       "optional": <BOOLEAN_VALUE>,
-      "optional_weight": <FLOAT_VALUE>
+      "optional_weight": <FLOAT_VALUE>,
+      "optional_default_value": <VALUE>,
     }
   }
 }
@@ -76,6 +89,8 @@ Basically, we need to specify the tables names, then the column positions of eac
 The "quote" option is used to inform the value should be delimited by quotes (true) or not (false). For example, numeric values does not need to use quotes.
 
 The "format" option is used to specify the format of the column according to the Faker formaters.
+
+The "args" option is used to specify the array of arguments to be used when calling the specified format.
 
 The "unique" option is used to specify the column is unique and should not repeat for that column of that table (it might repeat on other columns or other tables).
 
@@ -106,7 +121,16 @@ Example of modifications:
       "quote": true,
       "format": "phoneNumber",
       "optional": true,
-      "optional_weight": 0.9
+      "optional_weight": 0.9,
+      "optional_default_value": null
+    },
+    "6": {
+      "quote": true,
+      "format": "lexify",
+      "unique": true,
+      "args": [
+        "TEST?????????"
+      ]
     }
   }
 }

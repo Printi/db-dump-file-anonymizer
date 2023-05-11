@@ -1,12 +1,13 @@
 <?php
 
-namespace Tests\Printi;
+namespace Tests\Printi\DbDumpFile;
 
 use PHPUnit\Framework\TestCase;
-use Printi\DbDumpFileAnonymizer;
+use Printi\DbDumpFile\Anonymizer;
+use Printi\DbDumpFile\Anonymizer\Config;
 
-#[CoversClass(DbDumpFileAnonymizer::class)]
-final class DbDumpFileAnonymizerTest extends TestCase
+#[CoversClass(Printi\DbDumpFile\Anonymizer::class)]
+final class AnonymizerTest extends TestCase
 {
     private static array $tempFiles = [];
 
@@ -46,6 +47,8 @@ final class DbDumpFileAnonymizerTest extends TestCase
     {
         yield 'tmpfile' => [tmpfile()];
 
+        yield 'url with mode "r"' => [fopen('https://github.com/printi/db-dump-file-anonymizer', 'r')];
+
         yield 'file opened with mode "r"' => [self::openFile('r')];
         yield 'file opened with mode "r+"' => [self::openFile('r+')];
         yield 'file opened with mode "w+"' => [self::openFile('w+')];
@@ -60,6 +63,10 @@ final class DbDumpFileAnonymizerTest extends TestCase
         yield 'file opened with mode "a+b"' => [self::openFile('a+b')];
         yield 'file opened with mode "x+b"' => [self::openFile('x+b', false)];
         yield 'file opened with mode "c+b"' => [self::openFile('c+b')];
+
+        yield 'STDIN' => [STDIN];
+        yield 'php://stdin with mode "r"' => [fopen('php://stdin', 'r')];
+        yield 'php://stdin with mode "rb"' => [fopen('php://stdin', 'rb')];
     }
 
     static public function providerValidOutputFile(): iterable
@@ -106,8 +113,6 @@ final class DbDumpFileAnonymizerTest extends TestCase
     {
         yield from self::providerInvalidResources();
 
-        yield 'url with mode "r"' => [fopen('https://github.com/printi/db-dump-file-anonymizer', 'r')];
-
         yield 'file opened with mode "w"' => [self::openFile('w')];
         yield 'file opened with mode "a"' => [self::openFile('a')];
         yield 'file opened with mode "x"' => [self::openFile('x', false)];
@@ -117,16 +122,13 @@ final class DbDumpFileAnonymizerTest extends TestCase
         yield 'file opened with mode "xb"' => [self::openFile('xb', false)];
         yield 'file opened with mode "cb"' => [self::openFile('cb')];
 
-        yield 'php://stdout with mode "r"' => [fopen('php://stdout', 'r')];
-        yield 'php://stderr with mode "r"' => [fopen('php://stderr', 'r')];
-        yield 'php://stdin with mode "r"' => [fopen('php://stdin', 'r')];
-        yield 'php://stdout with mode "rb"' => [fopen('php://stdout', 'rb')];
-        yield 'php://stderr with mode "rb"' => [fopen('php://stderr', 'rb')];
-        yield 'php://stdin with mode "rb"' => [fopen('php://stdin', 'rb')];
+        yield 'php://stdout with mode "w"' => [fopen('php://stdout', 'w')];
+        yield 'php://stderr with mode "w"' => [fopen('php://stderr', 'w')];
+        yield 'php://stdout with mode "wb"' => [fopen('php://stdout', 'wb')];
+        yield 'php://stderr with mode "wb"' => [fopen('php://stderr', 'wb')];
 
         yield 'STDOUT' => [STDOUT];
         yield 'STDERR' => [STDERR];
-        yield 'STDIN' => [STDIN];
     }
 
     static public function providerInvalidOutputFiles(): iterable
@@ -150,57 +152,73 @@ final class DbDumpFileAnonymizerTest extends TestCase
 
     /**
      * @testdox Constructor setting a valid input file handler should work
-     * @covers DbDumpFileAnonymizer::__construct
+     * @covers Anonymizer::__construct
      * @dataProvider providerValidInputFile
      */
     public function testConstructorSettingValidInputFileHandlerShouldWork($input): void
     {
+        // Prepare
+        $validOutput = STDOUT;
+        $validConfig = new Config([]);
+
         // Execute
-        $obj = new DbDumpFileAnonymizer($input, STDOUT, 'en_US', []);
+        $obj = new Anonymizer($input, $validOutput, $validConfig);
 
         // Expect
-        $this->assertInstanceOf(DbDumpFileAnonymizer::class, $obj);
+        $this->assertInstanceOf(Anonymizer::class, $obj);
     }
 
     /**
      * @testdox Constructor setting a valid output file handler should work
-     * @covers DbDumpFileAnonymizer::__construct
+     * @covers Anonymizer::__construct
      * @dataProvider providerValidOutputFile
      */
     public function testConstructorSettingValidOutputFileHandlerShouldWork($output): void
     {
+        // Prepare
+        $validInput = STDIN;
+        $validConfig = new Config([]);
+
         // Execute
-        $obj = new DbDumpFileAnonymizer(self::openFile('r'), $output, 'en_US', []);
+        $obj = new Anonymizer($validInput, $output, $validConfig);
 
         // Expect
-        $this->assertInstanceOf(DbDumpFileAnonymizer::class, $obj);
+        $this->assertInstanceOf(Anonymizer::class, $obj);
     }
 
     /**
      * @testdox Constructor setting an invalid input file handler should break
-     * @covers DbDumpFileAnonymizer::__construct
+     * @covers Anonymizer::__construct
      * @dataProvider providerInvalidInputFiles
      */
     public function testConstructorSetingInvalidInputFileHandlerShouldBreak($input)
     {
+        // Prepare
+        $validOutput = STDOUT;
+        $validConfig = new Config([]);
+
         // Expect
         $this->expectException(\InvalidArgumentException::class);
 
         // Execute
-        new DbDumpFileAnonymizer($input, STDOUT, 'en_US', []);
+        new Anonymizer($input, $validOutput, $validConfig);
     }
 
     /**
      * @testdox Constructor setting an invalid output file handler should break
-     * @covers DbDumpFileAnonymizer::__construct
+     * @covers Anonymizer::__construct
      * @dataProvider providerInvalidOutputFiles
      */
     public function testConstructorSetingInvalidOutputFileHandlerShouldBreak($output)
     {
+        // Prepare
+        $validInput = STDIN;
+        $validConfig = new Config([]);
+
         // Expect
         $this->expectException(\InvalidArgumentException::class);
 
         // Execute
-        new DbDumpFileAnonymizer(self::openFile('r'), $output, 'en_US', []);
+        new Anonymizer($validInput, $output, $validConfig);
     }
 }

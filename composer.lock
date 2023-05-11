@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "42937c560978347345217a34ae034756",
+    "content-hash": "a5ce5d70534962ee0f8c9a95938ceeb4",
     "packages": [
         {
             "name": "fakerphp/faker",
@@ -73,6 +73,61 @@
                 "source": "https://github.com/FakerPHP/Faker/tree/v1.21.0"
             },
             "time": "2022-12-13T13:54:32+00:00"
+        },
+        {
+            "name": "jschaedl/byte",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/jschaedl/Byte.git",
+                "reference": "3bbf93c878f9199315288835db8659698efabca6"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/jschaedl/Byte/zipball/3bbf93c878f9199315288835db8659698efabca6",
+                "reference": "3bbf93c878f9199315288835db8659698efabca6",
+                "shasum": ""
+            },
+            "require-dev": {
+                "covex-nn/phpcb": "1.0.*@dev",
+                "pdepend/pdepend": "dev-master",
+                "phpdocumentor/phpdocumentor": "*",
+                "phploc/phploc": "*",
+                "phpmd/phpmd": "dev-master",
+                "phpunit/php-code-coverage": ">=1.2.10,<1.3.0",
+                "phpunit/phpunit": "3.7.*",
+                "sebastian/phpcpd": "*",
+                "zerkalica/phpcs": "dev-master"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-0": {
+                    "Byte": "library"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Jan Schädlich",
+                    "email": "mail@janschaedlich.com",
+                    "homepage": "https://github.com/jschaedl/"
+                }
+            ],
+            "description": "byte conversion utility",
+            "homepage": "http://github.com/jschaedl/Byte",
+            "keywords": [
+                "byte",
+                "conversion",
+                "utility"
+            ],
+            "support": {
+                "issues": "https://github.com/jschaedl/Byte/issues",
+                "source": "https://github.com/jschaedl/Byte/tree/master"
+            },
+            "time": "2013-10-05T13:25:59+00:00"
         },
         {
             "name": "psr/container",

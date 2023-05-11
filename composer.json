@@ -16,7 +16,8 @@
         "ext-ctype": "*",
         "ext-pcre": "*",
         "ext-mbstring": "*",
-        "fakerphp/faker": "^1.21"
+        "fakerphp/faker": "^1.21",
+        "jschaedl/byte": "^1.0"
     },
     "require-dev": {
         "squizlabs/php_codesniffer": "@stable",
