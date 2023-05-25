@@ -2,8 +2,10 @@
 
 namespace Printi\DbDumpFile;
 
+use PHPUnit\Framework\Attributes\CodeCoverageIgnore;
+
 /**
- * Parser is responsible to parse a db dump file and split into 5 different types of tokens:
+ * Parser is responsible to parse a db dump file and split it into 5 different types of tokens:
  * TYPE_INSERT_START_TOKEN: that represents the start of a INSERT statament
  * TYPE_INSERT_TUPLE_TOKEN: that represents a single tuple of values of a INSERT statement
  * TYPE_INSERT_TUPLE_SEPARATOR_TOKEN: that represents a separator of a tuple in a INSERT statement
@@ -11,20 +13,30 @@ namespace Printi\DbDumpFile;
  * TYPE_CHUNK_TOKEN: that represents any other sequence of chars in the db dump file
  *
  * The main method is "parseTokens", that returns an Iterator optimized for read (cannot rewind).
+ * The iterator returns the detected tokens.
+ * Each token is represented by an associative array containing:
+ *   int 'type' The type of the token (one of the const Parser::TYPE_...)
+ *   string 'raw' The raw value detected from the input stream
+ *   string 'table' The table name (when token is TYPE_INSERT_START_TOKEN)
+ *   array 'values' The tuple values (when token is TYPE_INSERT_TUPLE_TOKEN)
+ *
+ * The key 'values' is represented by an array of associative arrays containing:
+ *   string 'type' The type of the value (one of the const Parser::VALUE_TYPE_...)
+ *   string 'raw' The raw value detected from the input stream
  */
 class Parser
 {
-    const DEFAULT_READ_BUFFER_SIZE = 512000; // 500KB
+    public const DEFAULT_READ_BUFFER_SIZE = 512000; // 500KB
 
     /** Types of tokens */
-    const TYPE_INSERT_START_TOKEN = 1,           // "INSERT INTO `<table>` VALUES "
+    public const TYPE_INSERT_START_TOKEN = 1,    // "INSERT INTO `<table>` VALUES "
         TYPE_INSERT_TUPLE_TOKEN = 2,             // "('<value1>', '<value2>', ...)"
         TYPE_INSERT_TUPLE_SEPARATOR_TOKEN = 3,   // ","
         TYPE_INSERT_END_TOKEN = 4,               // ";"
         TYPE_CHUNK_TOKEN = 5;                    // Any other sequence of chars
 
     /** Types of values */
-    const VALUE_TYPE_STRING = 'string',
+    public const VALUE_TYPE_STRING = 'string',
         VALUE_TYPE_NUMBER = 'number',
         VALUE_TYPE_NULL = 'null';
 
@@ -61,6 +73,36 @@ class Parser
     }
 
     /**
+     * Parse the tokens of the input stream and return an Iterator that is optimized for read (cannot rewind)
+     * @return \Iterator
+     * @throws \RuntimeException
+     */
+    public function parseTokens(): \Iterator
+    {
+        $i = 0;
+        foreach ($this->parseTokensWithoutKeys() as $token) {
+            yield $i++ => $token;
+        }
+    }
+
+    /**
+     * Method used by parseTokens to return the iterator of tokens without the keys (index)
+     * @return \Iterator
+     * @throws \RuntimeException
+     */
+    protected function parseTokensWithoutKeys(): \Iterator
+    {
+        while (!$this->isEndOfFile()) {
+            $tableName = $this->detectInsertIntoStatement();
+            if ($tableName && in_array($tableName, $this->config['tables'])) {
+                yield from $this->parseInsertIntoStatement($tableName);
+            } else {
+                yield from $this->parseLine();
+            }
+        }
+    }
+
+    /**
      * Set the input stream
      * @param resource $inputStream
      * @return void
@@ -71,9 +113,13 @@ class Parser
         if (!is_resource($inputStream)) {
             $this->throwInvalidTypeException('input stream', 'resource', gettype($inputStream));
         }
+
+        // @codeCoverageIgnoreStart
         if (get_resource_type($inputStream) !== 'stream') {
             $this->throwInvalidResourceTypeException('input stream', 'stream', get_resource_type($inputStream));
         }
+        // @codeCoverageIgnoreEnd
+
         $streamMeta = stream_get_meta_data($inputStream);
         if (!preg_match('/(r|r\+|w\+|a\+|x\+|c\+)/', $streamMeta['mode'])) {
             $this->throwInvalidStreamModeException('input', 'read', $streamMeta['mode']);
@@ -105,23 +151,6 @@ class Parser
         }
         if (!is_array($this->config['tables'])) {
             $this->throwInvalidTypeException('config key "tables"', 'array', gettype($this->config['tables']));
-        }
-    }
-
-    /**
-     * Parse the tokens of the input stream and return an Iterator that is optimized for read (cannot rewind)
-     * @return \Iterator
-     * @throws \RuntimeException
-     */
-    public function parseTokens(): \Iterator
-    {
-        while (!$this->isEndOfFile()) {
-            $tableName = $this->detectInsertIntoStatement();
-            if ($tableName && in_array($tableName, $this->config['tables'])) {
-                yield from $this->parseInsertIntoStatement($tableName);
-            } else {
-                yield from $this->parseLine();
-            }
         }
     }
 
@@ -515,7 +544,10 @@ class Parser
             && feof($this->inputStream);
     }
 
+    // Exceptions
+
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidTypeException(string $inputName, string $expectedType, string $receivedType): void
     {
         throw new \InvalidArgumentException(
@@ -529,6 +561,7 @@ class Parser
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidValueException(string $inputName, string $expectedValue, $receivedValue): void
     {
         throw new \InvalidArgumentException(
@@ -542,6 +575,7 @@ class Parser
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidResourceTypeException(string $resourceName, string $expectedResourceType, $receivedResourceType): void
     {
         throw new \InvalidArgumentException(
@@ -555,6 +589,7 @@ class Parser
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidStreamModeException(string $streamName, string $expectedMode, string $receivedMode): void
     {
         throw new \InvalidArgumentException(
@@ -568,6 +603,7 @@ class Parser
     }
 
     /** @throws \RuntimeException */
+    #[CodeCoverageIgnore]
     protected function throwUnexpectedCharException(string $context, string $expected, string $received, string $bytesType, string $bytes): void
     {
         throw new \RuntimeException(
@@ -584,6 +620,7 @@ class Parser
     }
 
     /** @throws \RuntimeException */
+    #[CodeCoverageIgnore]
     protected function throwUnexpectedEofException(string $size): void
     {
         throw new \RuntimeException(
@@ -596,6 +633,7 @@ class Parser
     }
 
     /** @throws \RuntimeException */
+    #[CodeCoverageIgnore]
     protected function throwUnexpectedStringException(string $expectedString, string $receivedString): void
     {
         throw new \RuntimeException(
@@ -609,6 +647,7 @@ class Parser
     }
 
     /** @throws \RuntimeException */
+    #[CodeCoverageIgnore]
     protected function throwUnexpectedMinCharClassException(string $charClass, int $expectedMinimum, int $receivedLength): void
     {
         throw new \RuntimeException(

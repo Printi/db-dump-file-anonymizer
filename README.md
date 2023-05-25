@@ -2,7 +2,7 @@
 
 ## Overview
 
-This PHP library can anonymize a database dump file, making it particularly useful for anonymizing data when restoring a live database in a non-live environment. This helps mitigate the risk of exposing real customer data if the non-live database is stolen, for example.
+This PHP library can anonymize a database dump file with random/fake data, making it particularly useful for anonymizing data when restoring a live database in a non-live environment. This helps mitigate the risk of exposing real customer data if the non-live database is stolen, for example.
 
 ## How it works
 
@@ -30,17 +30,17 @@ $ ./vendor/bin/anonymize-db-dump [OPTIONS]
 
 These are the available options:
 
- * `-h | --help`                         to show the help
- * `-i | --input=FILE`                   to inform the input file (dump file of MySQL)
- * `--stdin`                             to read input from STDIN
- * `-o | --output=FILE`                  to inform the output file
- * `--stdout`                            to write the output in the STDOUT
- * `-m | --modifications=MODIFICATIONS`  to inform the JSON of expected modifications
- * `-f | --modifications-file=FILE`      to inform the JSON file with expected modifications
- * `-l | --locale=LOCALE`                to inform the locale to be used by Faker
- * `-q | --quiet`                        to ommit messages
- * `-r | --read-buffer-size=SIZE`        to inform the read buffer size (example: 100, 1KB, 1MB, 1GB)
- * `-w | --write-buffer-size=SIZE`       to inform the write buffer size (example: 100, 1KB, 1MB, 1GB)
+ * `-h` or `--help`: to show the help
+ * `-i FILE` or `--input=FILE`: to inform the input file (dump file of MySQL)
+ * `--stdin`: to read input from STDIN
+ * `-o FILE` or `--output=FILE`: to inform the output file
+ * `--stdout`: to write the output in the STDOUT
+ * `-m MODIFICATIONS` or `--modifications=MODIFICATIONS`: to inform the JSON of expected modifications
+ * `-f FILE` or `--modifications-file=FILE`: to inform the JSON file with expected modifications
+ * `-l LOCALE` or `--locale=LOCALE`: to inform the locale to be used by Faker
+ * `-q` or `--quiet`: to ommit messages
+ * `-r SIZE` or `--read-buffer-size=SIZE`: to inform the read buffer size (example: 100, 1KB, 1MB, 1GB)
+ * `-w SIZE` or `--write-buffer-size=SIZE`: to inform the write buffer size (example: 100, 1KB, 1MB, 1GB)
 
 This library uses [Faker](https://fakerphp.github.io/) to generate the fake (anonymous) data. You will need to check the library to see the available options of formatters, arguments for formatters and locales.
 
@@ -78,7 +78,7 @@ The JSON to specify the modifications over the dump file uses this structure:
       "unique": <BOOLEAN_VALUE>,
       "optional": <BOOLEAN_VALUE>,
       "optional_weight": <FLOAT_VALUE>,
-      "optional_default_value": <VALUE>,
+      "optional_default_value": <VALUE>
     }
   }
 }

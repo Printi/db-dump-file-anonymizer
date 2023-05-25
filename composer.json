@@ -36,6 +36,14 @@
             "Tests\\Printi\\": "tests/src/"
         }
     },
+    "scripts": {
+        "test": "php ./vendor/bin/phpunit",
+        "check-style": "php ./vendor/bin/phpcs",
+        "verify": [
+            "@test",
+            "@check-style"
+        ]
+    },
     "archive": {
         "exclude": [
             ".git",

@@ -2,7 +2,7 @@
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.0/phpunit.xsd"
          bootstrap="vendor/autoload.php"
-         cacheDirectory="var/cache/.phpunit.cache"
+         cacheDirectory="var/cache/phpunit"
          executionOrder="depends,defects"
          requireCoverageMetadata="true"
          beStrictAboutCoverageMetadata="true"
@@ -19,5 +19,18 @@
         <include>
             <directory suffix=".php">src</directory>
         </include>
+        <report>
+            <html outputDirectory="var/reports/tests/coverage/html-coverage" lowUpperBound="50" highLowerBound="90" />
+            <clover outputFile="var/reports/tests/coverage/clover.xml" />
+            <text outputFile="var/reports/tests/coverage/coverage.txt" showUncoveredFiles="false" showOnlySummary="true" />
+            <xml outputDirectory="var/reports/tests/coverage/xml-coverage" />
+        </report>
     </coverage>
+
+    <logging>
+        <junit outputFile="var/reports/tests/junit.xml" />
+        <teamcity outputFile="var/reports/tests/teamcity.txt" />
+        <testdoxHtml outputFile="var/reports/tests/testdox.html" />
+        <testdoxText outputFile="var/reports/tests/testdox.txt" />
+    </logging>
 </phpunit>

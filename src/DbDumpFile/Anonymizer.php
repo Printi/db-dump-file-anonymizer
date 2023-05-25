@@ -2,10 +2,15 @@
 
 namespace Printi\DbDumpFile;
 
+use PHPUnit\Framework\Attributes\CodeCoverageIgnore;
 use Printi\DbDumpFile\Anonymizer\Config;
 
 /**
- * Class to anonymize a DB dump file using fake data
+ * Class to anonymize a DB dump file using fake data.
+ * It uses \Printi\DbDumpFile\Anonymizer\Config to encapsulate optional configurations.
+ * It uses \Printi\DbDumpFile\Parser to parse the tokens of a DB dump file,
+ * then it determines whether the token must be kept or replaced, according to
+ * the modifications spec (informed in the configuration object).
  */
 class Anonymizer
 {
@@ -55,53 +60,25 @@ class Anonymizer
             ftruncate($this->outputStream, $this->calculateOutputSizeReservation());
         }
 
-        $modificationsSpec = $this->config->getModificationsSpec();
+        $modificationsSpec = $this->getConfig()->getModificationsSpec();
 
         $tokens = $this->getTokens();
 
-        $token = $tokens->current();
-        $i = 1;
+        [$i, $token] = [$tokens->key(), $tokens->current()];
         while ($tokens->valid()) {
             if (
                 $token['type'] === Parser::TYPE_INSERT_START_TOKEN
                 && isset($modificationsSpec[$token['table']])
             ) {
-                $currentTable = $token['table'];
-                $appliedModifications[] = $currentTable;
-                $currentModificationsSpec = $modificationsSpec[$currentTable];
+                $appliedModifications[] = $token['table'];
 
-                $this->notifyToken($i, $token, sprintf('TABLE DETECTED %s', $currentTable));
-
-                $this->copyTokenToOutput($token);
-
-                $tokens->next();
-                $token = $tokens->current();
-                while ($token['type'] !== Parser::TYPE_INSERT_END_TOKEN) {
-                    if ($token['type'] === Parser::TYPE_INSERT_TUPLE_TOKEN) {
-                        $this->notifyToken($i, $token, sprintf('TUPLE REPLACED %s', $currentTable));
-                        $this->replaceInsertTupleToken($token, $currentTable, $currentModificationsSpec);
-                    } elseif ($token['type'] === Parser::TYPE_INSERT_TUPLE_SEPARATOR_TOKEN) {
-                        $this->copyTokenToOutput($token);
-                    } else {
-                        $this->throwUnexpectedTokenException($token['type']);
-                    }
-                    $tokens->next();
-                    $token = $tokens->current();
-                    $i += 1;
-                }
-
-                if ($token['type'] === Parser::TYPE_INSERT_END_TOKEN) {
-                    $this->copyTokenToOutput($token);
-                } else {
-                    $this->throwUnexpectedTokenException($token['type']);
-                }
+                $this->replaceInsertStatement($tokens);
             } else {
                 $this->notifyToken($i, $token, 'TOKEN KEPT');
                 $this->copyTokenToOutput($token);
             }
             $tokens->next();
-            $token = $tokens->current();
-            $i += 1;
+            [$i, $token] = [$tokens->key(), $tokens->current()];
         }
 
         $this->flushOutputStream();
@@ -126,9 +103,13 @@ class Anonymizer
         if (!is_resource($inputStream)) {
             $this->throwInvalidArgumentTypeException('input stream', 'resource', gettype($inputStream));
         }
+
+        // @codeCoverageIgnoreStart
         if (get_resource_type($inputStream) !== 'stream') {
             $this->throwInvalidResourceTypeException('input stream', 'stream', get_resource_type($inputStream));
         }
+        // @codeCoverageIgnoreEnd
+
         $streamMeta = stream_get_meta_data($inputStream);
         if (!preg_match('/(r|r\+|w\+|a\+|x\+|c\+)/', $streamMeta['mode'])) {
             $this->throwInvalidStreamModeException('input', 'read', $streamMeta['mode']);
@@ -147,9 +128,13 @@ class Anonymizer
         if (!is_resource($outputStream)) {
             $this->throwInvalidArgumentTypeException('output stream', 'resource', gettype($outputStream));
         }
+
+        // @codeCoverageIgnoreStart
         if (get_resource_type($outputStream) !== 'stream') {
             $this->throwInvalidResourceTypeException('output stream', 'stream', get_resource_type($outputStream));
         }
+        // @codeCoverageIgnoreEnd
+
         $streamMeta = stream_get_meta_data($outputStream);
         if (!preg_match('/(w|r\+|a|a\+|x|x\+|c|c\+)/', $streamMeta['mode'])) {
             $this->throwInvalidStreamModeException('output', 'write', $streamMeta['mode']);
@@ -178,8 +163,8 @@ class Anonymizer
             $this->fakers[$table] = [];
         }
         if (!isset($this->fakers[$table][$column])) {
-            $faker = \Faker\Factory::create($this->config->getLocale());
-            $columnModificationSpec = $this->config->getColumnModificationSpec($table, $column);
+            $faker = \Faker\Factory::create($this->getConfig()->getLocale());
+            $columnModificationSpec = $this->getConfig()->getColumnModificationSpec($table, $column);
 
             if (!empty($columnModificationSpec['unique'])) {
                 $faker = $faker->unique();
@@ -213,7 +198,7 @@ class Anonymizer
             return intval($inputFileSize * 1.1);
         }
 
-        return $this->config->getReserveOutputFileSize();
+        return $this->getConfig()->getReserveOutputFileSize();
     }
 
     /**
@@ -223,8 +208,8 @@ class Anonymizer
     protected function getTokens(): \Iterator
     {
         $parserConfig = [
-            'read_buffer_size' => $this->config->getReadBufferSize(),
-            'tables' => array_keys($this->config->getModificationsSpec()),
+            'read_buffer_size' => $this->getConfig()->getReadBufferSize(),
+            'tables' => array_keys($this->getConfig()->getModificationsSpec()),
         ];
 
         return (new Parser($this->inputStream, $parserConfig))->parseTokens();
@@ -238,6 +223,47 @@ class Anonymizer
     protected function copyTokenToOutput(array $token): void
     {
         $this->writeToOutputStream($token['raw']);
+    }
+
+    /**
+     * Replace the INSERT INTO statement with random values for the current position of the iterator
+     * @param \Iterator $tokens
+     * @return void
+     */
+    protected function replaceInsertStatement(\Iterator $tokens): void
+    {
+        [$i, $token] = [$tokens->key(), $tokens->current()];
+
+        $currentTable = $token['table'];
+        $modificationsSpec = $this->getConfig()->getModificationsSpec();
+        $currentModificationsSpec = $modificationsSpec[$currentTable];
+
+        $this->notifyToken($i, $token, sprintf('TABLE DETECTED %s', $currentTable));
+
+        $this->copyTokenToOutput($token);
+
+        $tokens->next();
+        [$i, $token] = [$tokens->key(), $tokens->current()];
+        while ($token['type'] !== Parser::TYPE_INSERT_END_TOKEN) {
+            if ($token['type'] === Parser::TYPE_INSERT_TUPLE_TOKEN) {
+                $this->notifyToken($i, $token, sprintf('TUPLE REPLACED %s', $currentTable));
+                $this->replaceInsertTupleToken($token, $currentTable, $currentModificationsSpec);
+            } elseif ($token['type'] === Parser::TYPE_INSERT_TUPLE_SEPARATOR_TOKEN) {
+                $this->notifyToken($i, $token, 'TOKEN KEPT');
+                $this->copyTokenToOutput($token);
+            } else {
+                $this->throwUnexpectedTokenException($token['type']);
+            }
+            $tokens->next();
+            [$i, $token] = [$tokens->key(), $tokens->current()];
+        }
+
+        if ($token['type'] === Parser::TYPE_INSERT_END_TOKEN) {
+            $this->notifyToken($i, $token, 'TOKEN KEPT');
+            $this->copyTokenToOutput($token);
+        } else {
+            $this->throwUnexpectedTokenException($token['type']);
+        }
     }
 
     /**
@@ -304,7 +330,7 @@ class Anonymizer
     protected function writeToOutputStream(string $data): void
     {
         $this->writeBuffer .= $data;
-        if (strlen($this->writeBuffer) > $this->config->getWriteBufferSize()) {
+        if (strlen($this->writeBuffer) > $this->getConfig()->getWriteBufferSize()) {
             $this->flushOutputStream();
         }
     }
@@ -326,37 +352,46 @@ class Anonymizer
      * @param string $message
      * @return void
      */
+    #[CodeCoverageIgnore]
     protected function notifyToken(int $tokenNumber, array $token, string $message): void
     {
+        $text = mb_substr(strtr($token['raw'], ["\n" => '␤', "\r" => '␍', "\t" => '→']), 0, 50);
+        $textLen = strlen($text) - mb_strlen($text) + 50;
+
         $this->notify(
-            "Token %-10d [%-50s] (size=%-10d): %s\n",
+            "Token %-10d [%-{$textLen}s] (size=%-10d): %s\n",
             $tokenNumber,
-            rtrim(mb_substr($token['raw'], 0, 50)),
+            $text,
             strlen($token['raw']),
             $message,
         );
     }
 
     /**
-     * Generates a notification on STDERR (to avoid conflicts with STDOUT)
+     * Sends a notification to the notification stream
      * @param string $format Format used by printf
      * @param ...$args Args used by printf
      * @return void
      */
+    #[CodeCoverageIgnore]
     protected function notify(string $format, ...$args): void
     {
-        if (!$this->config->getQuiet()) {
-            vfprintf(STDERR, $format, $args);
+        if (!$this->getConfig()->getQuiet()) {
+            vfprintf($this->getConfig()->getNotificationStream(), $format, $args);
         }
     }
 
+    // Exceptions
+
     /** @throws \RuntimeException */
+    #[CodeCoverageIgnore]
     protected function throwUnexpectedTokenException($tokenType): void
     {
         throw new \RuntimeException(sprintf('Unexpected token type: %s', $tokenType));
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidArgumentTypeException(string $argument, string $expectedType, string $receivedType): void
     {
         throw new \InvalidArgumentException(
@@ -370,6 +405,7 @@ class Anonymizer
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidResourceTypeException(string $argument, string $expectedType, string $receivedType): void
     {
         throw new \InvalidArgumentException(
@@ -383,6 +419,7 @@ class Anonymizer
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidStreamModeException(string $streamName, string $expectedMode, string $receivedMode): void
     {
         throw new \InvalidArgumentException(

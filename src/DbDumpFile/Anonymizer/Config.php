@@ -1,17 +1,20 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Printi\DbDumpFile\Anonymizer;
 
+use PHPUnit\Framework\Attributes\CodeCoverageIgnore;
+
 /**
- * Configuration container for anonymization
+ * Configuration container for the class \Printi\DbDumpFile\Anonimizer
  */
 class Config
 {
-    const DEFAULT_LOCALE = 'en_US';
-    const DEFAULT_QUIET_FLAG = false;
-    const DEFAULT_RESERVE_OUTPUT_FILE_SIZE = 1052872704; // 1GB
-    const DEFAULT_READ_BUFFER_SIZE = 512000; // 500KB
-    const DEFAULT_WRITE_BUFFER_SIZE = 512000; // 500KB
+    public const DEFAULT_LOCALE = 'en_US';
+    public const DEFAULT_QUIET_FLAG = false;
+    public const DEFAULT_NOTIFICATION_STREAM = STDERR;
+    public const DEFAULT_RESERVE_OUTPUT_FILE_SIZE = 1052872704; // 1GB
+    public const DEFAULT_READ_BUFFER_SIZE = 512000; // 500KB
+    public const DEFAULT_WRITE_BUFFER_SIZE = 512000; // 500KB
 
     /**
      * The file size that is used to reserve space in storage before generating the output file.
@@ -41,16 +44,36 @@ class Config
     /** @var bool Whether to ommit notifications or not */
     private bool $quiet;
 
+    /** @var resource Output stream for notifications */
+    private $notificationStream;
+
     /**
+     * Specification of the desired modifications over the dump file
+     *
+     * The index of the array indicates the column position, and the value of the array
+     * indicates the modification specification for that column.
+     *
+     * Each column spec may have these keys:
+     *   bool 'quote' Whether the value must be quoted.
+     *   string 'format' The Faker format
+     *   array 'args' The arguments to be used in the informed format
+     *   bool 'unique' Whether the column is unique
+     *   bool 'optional' Whether the column is optional
+     *   mixed 'optional_default_value' The default value for optional columns
+     *   float 'optional_weight' The probability to chose a non-default value (1.0 = 100%, 0.0 = 0%)
+     *
+     * When the flag `optional` is true, Faker class will chose a default value or a
+     * non-default value, according to a probability.
+     *
      * Example:
      * [
      *     "customer" => [
-     *         2 => ["type" => "int", "format" => "numberBetween", "args" => [1, 10]],
-     *         5 => ["type" => "string", "format" => "firstName"],
-     *         6 => ["type" => "string", "format" => "lastName"],
+     *         2 => ["quote" => false, "format" => "numberBetween", "args" => [1, 10]],
+     *         5 => ["quote" => true, "format" => "firstName"],
+     *         6 => ["quote" => true, "format" => "lastName"],
      *     ],
      * ]
-     * @var array Specification of the desired modifications over the dump file
+     * @var array
      */
     private array $modificationsSpec;
 
@@ -59,8 +82,11 @@ class Config
      * @param array $config Associative array with:
      *   string 'locale' Locale of the Faker instance
      *   bool 'quiet' Wheter to omit messages
+     *   resource 'notification_stream' Output stream for notifications
      *   int 'read_buffer_size' Buffer size for reading the input stream
+     *   int 'write_buffer_size' Buffer size for writing the output stream
      *   int 'reserve_output_file_size' Reserves the requested size for the output stream when it is seekable
+     *   array 'modifications_spec' Specification of the expected modifications (see self::$modificationsSpec)
      * @throws \InvalidArgumentException
      */
     public function __construct(array $config = [])
@@ -114,6 +140,15 @@ class Config
     }
 
     /**
+     * Return the attribute notificationStream
+     * @return resource
+     */
+    public function getNotificationStream()
+    {
+        return $this->notificationStream;
+    }
+
+    /**
      * Return the attribute modificationsSpec
      * @return array
      */
@@ -138,6 +173,7 @@ class Config
      * @param array $config Associative array with:
      *   string 'locale' Locale of the Faker instance
      *   bool 'quiet' Wheter to omit messages
+     *   resource 'notification_stream' Output stream for notifications
      *   int 'read_buffer_size' Buffer size for reading the input stream
      *   int 'reserve_output_file_size' Reserves the requested size for the output stream when it is seekable
      *   array 'modifications_spec'
@@ -166,6 +202,7 @@ class Config
 
         $this->locale = strval($config['locale'] ?? self::DEFAULT_LOCALE);
         $this->quiet = boolval($config['quiet'] ?? self::DEFAULT_QUIET_FLAG);
+        $this->setNotificationStream($config['notification_stream'] ?? self::DEFAULT_NOTIFICATION_STREAM);
 
         $this->setModificationsSpec($config['modifications_spec'] ?? []);
     }
@@ -194,6 +231,30 @@ class Config
     }
 
     /**
+     * Sets the notification stream
+     * @param resource $stream Resource of the type stream with permission to write
+     * @return void
+     */
+    protected function setNotificationStream($stream): void
+    {
+        if (!is_resource($stream)) {
+            $this->throwInvalidTypeException('notification_stream', 'resource', gettype($stream));
+        }
+
+        // @codeCoverageIgnoreStart
+        if (get_resource_type($stream) !== 'stream') {
+            $this->throwInvalidValueException('resource type of notification_stream', 'stream', get_resource_type($stream));
+        }
+        // @codeCoverageIgnoreEnd
+
+        $streamMeta = stream_get_meta_data($stream);
+        if (!preg_match('/(w|r\+|a|a\+|x|x\+|c|c\+)/', $streamMeta['mode'])) {
+            $this->throwInvalidValueException('file mode of notification_stream', 'write', $streamMeta['mode']);
+        }
+        $this->notificationStream = $stream;
+    }
+
+    /**
      * Set the modifications spec
      * @param array $modificationsSpec
      * @return void
@@ -215,22 +276,22 @@ class Config
                 if (!is_numeric($columnNumber) || $columnNumber < 1) {
                     $this->throwInvalidColumnNumberException($table, $columnNumber);
                 }
-                if (!empty($columnSpec['quote']) && !is_bool($columnSpec['quote'])) {
+                if (array_key_exists('quote', $columnSpec) && !is_bool($columnSpec['quote'])) {
                     $this->throwInvalidQuotingFlagException($table, $columnNumber, $columnSpec['quote']);
                 }
-                if (empty($columnSpec['format']) || !is_callable([$faker, $columnSpec['format']])) {
-                    $this->throwInvalidFormatException($table, $columnNumber, $columnSpec['format']);
+                if (!array_key_exists('format', $columnSpec) || !is_callable([$faker, $columnSpec['format']])) {
+                    $this->throwInvalidFormatException($table, $columnNumber, $columnSpec['format'] ?? null);
                 }
-                if (isset($columnSpec['args']) && !is_array($columnSpec['args'])) {
+                if (array_key_exists('args', $columnSpec) && !is_array($columnSpec['args'])) {
                     $this->throwInvalidArgsTypeException($table, $columnNumber, gettype($columnSpec['args']));
                 }
-                if (isset($columnSpec['unique']) && !is_bool($columnSpec['unique'])) {
+                if (array_key_exists('unique', $columnSpec) && !is_bool($columnSpec['unique'])) {
                     $this->throwInvalidFlagTypeException('unique', 'bool', gettype($columnSpec['unique']), $table, $columnNumber);
                 }
-                if (isset($columnSpec['optional']) && !is_bool($columnSpec['optional'])) {
+                if (array_key_exists('optional', $columnSpec) && !is_bool($columnSpec['optional'])) {
                     $this->throwInvalidFlagTypeException('optional', 'bool', gettype($columnSpec['optional']), $table, $columnNumber);
                 }
-                if (isset($columnSpec['optional_weight']) && !is_float($columnSpec['optional_weight'])) {
+                if (array_key_exists('optional_weight', $columnSpec) && !is_float($columnSpec['optional_weight'])) {
                     $this->throwInvalidFlagTypeException('optional_weight', 'float', gettype($columnSpec['optional_weight']), $table, $columnNumber);
                 }
                 $this->modificationsSpec[$table][intval($columnNumber)] = $columnSpec;
@@ -238,12 +299,15 @@ class Config
         }
     }
 
+    // Exceptions
+
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidTypeException(string $optionName, string $expectedType, $receivedType): void
     {
         throw new \InvalidArgumentException(
             sprintf(
-                'Invalid type for the option "%s" (expected %s but got %s)',
+                'Invalid type for "%s" (expected %s but got %s)',
                 $optionName,
                 $expectedType,
                 $receivedType,
@@ -252,11 +316,12 @@ class Config
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidValueException(string $optionName, string $expectedValue, $receivedValue): void
     {
         throw new \InvalidArgumentException(
             sprintf(
-                'Invalid value for the option "%s" (expected %s but got %s)',
+                'Invalid value for "%s" (expected %s but got %s)',
                 $optionName,
                 $expectedValue,
                 var_export($receivedValue, true),
@@ -265,6 +330,7 @@ class Config
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidTableNameException($table): void
     {
         throw new \InvalidArgumentException(
@@ -276,6 +342,7 @@ class Config
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidColumnNumberException($table, $columnNumber): void
     {
         throw new \InvalidArgumentException(
@@ -288,6 +355,7 @@ class Config
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidQuotingFlagException($table, $columnNumber, $quoteFlag): void
     {
         throw new \InvalidArgumentException(
@@ -295,12 +363,13 @@ class Config
                 'Invalid column flag for quoting in modifications spec for table %s / column %s: %s',
                 var_export($table, true),
                 var_export($columnNumber, true),
-                var_export($columnSpec['quote'], true),
+                var_export($quoteFlag, true),
             ),
         );
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidFormatException($table, $columnNumber, $format): void
     {
         throw new \InvalidArgumentException(
@@ -314,6 +383,7 @@ class Config
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidArgsTypeException($table, $columnNumber, string $type): void
     {
         throw new \InvalidArgumentException(
@@ -327,6 +397,7 @@ class Config
     }
 
     /** @throws \InvalidArgumentException */
+    #[CodeCoverageIgnore]
     protected function throwInvalidFlagTypeException(string $flag, string $expectedType, string $receivedType, $table, $columnNumber): void
     {
         throw new \InvalidArgumentException(

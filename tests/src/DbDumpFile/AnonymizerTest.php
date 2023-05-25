@@ -2,33 +2,37 @@
 
 namespace Tests\Printi\DbDumpFile;
 
+use Tests\Printi\Fixtures;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 use Printi\DbDumpFile\Anonymizer;
 use Printi\DbDumpFile\Anonymizer\Config;
+use Printi\DbDumpFile\Parser;
 
-#[CoversClass(Printi\DbDumpFile\Anonymizer::class)]
+#[CoversClass(Anonymizer::class)]
+#[UsesClass(Config::class)]
+#[UsesClass(Parser::class)]
 final class AnonymizerTest extends TestCase
 {
     private static array $tempFiles = [];
 
-    // Auxiliary methods
+    // Helper methods
 
-    private static function openFile(string $mode, bool $existingFile = true): mixed
+    private static function openFile(string $mode, bool $existingFile = true, string $content = ''): mixed
     {
-        $file = tempnam(sys_get_temp_dir(), 'test');
-        if (!$existingFile) {
-            unlink($file);
-        }
-        $record = [
-            'file' => $file,
-            'mode' => $mode,
-            'stream' => fopen($file, $mode),
-        ];
-        self::$tempFiles[] = $record;
+        $fileRecord = Fixtures::openFile($mode, $existingFile, $content);
 
-        return $record['stream'];
+        self::$tempFiles[] = $fileRecord;
+
+        return $fileRecord['stream'];
     }
 
+    // Hook methods
+
+    /**
+     * @inheritdoc
+     */
     public static function tearDownAfterClass(): void
     {
         foreach (self::$tempFiles as $file) {
@@ -43,11 +47,9 @@ final class AnonymizerTest extends TestCase
 
     // Providers
 
-    static public function providerValidInputFile(): iterable
+    static public function providerValidInputStreams(): iterable
     {
         yield 'tmpfile' => [tmpfile()];
-
-        yield 'url with mode "r"' => [fopen('https://github.com/printi/db-dump-file-anonymizer', 'r')];
 
         yield 'file opened with mode "r"' => [self::openFile('r')];
         yield 'file opened with mode "r+"' => [self::openFile('r+')];
@@ -56,7 +58,6 @@ final class AnonymizerTest extends TestCase
         yield 'file opened with mode "x+"' => [self::openFile('x+', false)];
         yield 'file opened with mode "c+"' => [self::openFile('c+')];
 
-        // Binary
         yield 'file opened with mode "rb"' => [self::openFile('rb')];
         yield 'file opened with mode "r+b"' => [self::openFile('r+b')];
         yield 'file opened with mode "w+b"' => [self::openFile('w+b')];
@@ -69,7 +70,7 @@ final class AnonymizerTest extends TestCase
         yield 'php://stdin with mode "rb"' => [fopen('php://stdin', 'rb')];
     }
 
-    static public function providerValidOutputFile(): iterable
+    static public function providerValidOutputStreams(): iterable
     {
         yield 'file opened with mode "r+"' => [self::openFile('r+')];
         yield 'file opened with mode "w"' => [self::openFile('w')];
@@ -81,7 +82,6 @@ final class AnonymizerTest extends TestCase
         yield 'file opened with mode "c"' => [self::openFile('c')];
         yield 'file opened with mode "c+"' => [self::openFile('c+')];
 
-        // Binary
         yield 'file opened with mode "r+b"' => [self::openFile('r+b')];
         yield 'file opened with mode "wb"' => [self::openFile('wb')];
         yield 'file opened with mode "w+b"' => [self::openFile('w+b')];
@@ -94,6 +94,8 @@ final class AnonymizerTest extends TestCase
 
         yield 'php://stdout with mode "w"' => [fopen('php://stdout', 'w')];
         yield 'php://stderr with mode "w"' => [fopen('php://stderr', 'w')];
+        yield 'php://stdout with mode "wb"' => [fopen('php://stdout', 'wb')];
+        yield 'php://stderr with mode "wb"' => [fopen('php://stderr', 'wb')];
         yield 'STDOUT' => [STDOUT];
         yield 'STDERR' => [STDERR];
     }
@@ -109,7 +111,7 @@ final class AnonymizerTest extends TestCase
         yield 'object' => [new \stdClass()];
     }
 
-    static public function providerInvalidInputFiles(): iterable
+    static public function providerInvalidInputStreams(): iterable
     {
         yield from self::providerInvalidResources();
 
@@ -131,7 +133,7 @@ final class AnonymizerTest extends TestCase
         yield 'STDERR' => [STDERR];
     }
 
-    static public function providerInvalidOutputFiles(): iterable
+    static public function providerInvalidOutputStreams(): iterable
     {
         yield from self::providerInvalidResources();
 
@@ -148,18 +150,124 @@ final class AnonymizerTest extends TestCase
         yield 'STDIN' => [STDIN];
     }
 
+    static public function providerValidInputStreamsForExecute(): iterable
+    {
+        yield 'empty file' => [
+            'input' => self::openFile('r+', true, ''),
+            'config' => new Config(['quiet' => true]),
+            'expectedOutputContent' => '',
+        ];
+
+        yield 'file without inserts' => [
+            'input' => self::openFile('r+', true, 'foo'),
+            'config' => new Config(['quiet' => true]),
+            'expectedOutputContent' => 'foo',
+        ];
+
+        $inputContent = <<<'EOF'
+-- Some comment
+INSERT INTO `foo` VALUES ('a\'b', 1, -1, 1.1, 1e1, NULL, NULL, 'x\'y'), ('c', 1000, -1000, 1000.1, 1000e1, NULL, NULL, 'z'),
+('', 1000, -1000, 1000.1, 1000e1, '', '', '');
+
+INSERT INTO `bar` VALUES (1);
+
+INSERT INTO `baz``baz` VALUES (1);
+
+insert into `foo` values ('a\'b', 1, -1, 1.1, 1e1, NULL, NULL, 'x\'y'), ('c', 1000, -1000, 1000.1, 1000e1, NULL, NULL, 'z');
+EOF;
+        $expectedOutputContent = <<<'EOF'
+-- Some comment
+INSERT INTO `foo` VALUES ('new value',2,-2,2.2,2e2,NULL,NULL,'x\'y'), ('new value',2,-2,2.2,2e2,NULL,NULL,'z'),
+('new value',2,-2,2.2,2e2,'other value',NULL,'');
+
+INSERT INTO `bar` VALUES (1);
+
+INSERT INTO `baz``baz` VALUES (1);
+
+insert into `foo` values ('new value',2,-2,2.2,2e2,NULL,NULL,'x\'y'), ('new value',2,-2,2.2,2e2,NULL,NULL,'z');
+EOF;
+        yield 'file with inserts' => [
+            'input' => self::openFile('r+', true, $inputContent),
+            'config' => new Config([
+                'quiet' => true,
+                'modifications_spec' => [
+                    'foo' => [
+                        '1' => [
+                            'quote' => true,
+                            'format' => 'randomElement',
+                            'args' => [['new value']],
+                        ],
+                        '2' => [
+                            'quote' => false,
+                            'format' => 'randomElement',
+                            'args' => [['2']],
+                        ],
+                        '3' => [
+                            'quote' => false,
+                            'format' => 'randomElement',
+                            'args' => [['-2']],
+                        ],
+                        '4' => [
+                            'quote' => false,
+                            'format' => 'randomElement',
+                            'args' => [['2.2']],
+                        ],
+                        '5' => [
+                            'quote' => false,
+                            'format' => 'randomElement',
+                            'args' => [['2e2']],
+                        ],
+                        '6' => [
+                            'quote' => true,
+                            'format' => 'randomElement',
+                            'args' => [['other value']],
+                        ],
+                        '7' => [
+                            'quote' => false,
+                            'format' => 'randomElement',
+                            'args' => [[null]],
+                        ],
+                    ],
+                ],
+            ]),
+            'expectedOutputContent' => $expectedOutputContent,
+        ];
+        unset($fileContent, $expectedOutputContent);
+    }
+
+    static public function providerInvalidInputContentForExecute(): iterable
+    {
+        yield 'Unexpected end of file (missing semicolon for insert statement)' => ['INSERT INTO `foo` VALUES ()'];
+        yield 'Unexpected end of file (missing close parentheses for tuple)' => ['INSERT INTO `foo` VALUES (1,'];
+        yield 'Unexpected end of file (missing close quotes)' => ['INSERT INTO `foo` VALUES ("'];
+        yield 'Unexpected end of file (missing comma after number)' => ['INSERT INTO `foo` VALUES (1'];
+        yield 'Unexpected end of file (missing comma after string #1)' => ['INSERT INTO `foo` VALUES ("a"'];
+        yield 'Unexpected end of file (missing comma after string #2)' => ["INSERT INTO `foo` VALUES ('a'"];
+        yield 'Unexpected end of file (missing comma after NULL)' => ['INSERT INTO `foo` VALUES (NULL'];
+
+        yield 'Unexpected value for tuple (missing value)' => ['INSERT INTO `foo` VALUES ();'];
+        yield 'Unexpected value for tuple (value "a" without quotes)' => ['INSERT INTO `foo` VALUES (a);'];
+        yield 'Unexpected value for tuple (invalid number: "1a")' => ['INSERT INTO `foo` VALUES (1a);'];
+        yield 'Unexpected value for tuple (invalid number: "1.a")' => ['INSERT INTO `foo` VALUES (1.a);'];
+        yield 'Unexpected value for tuple (invalid number: "1.1a")' => ['INSERT INTO `foo` VALUES (1.1a);'];
+
+        yield 'Unexpected value for tuple (missing comma after number)' => ['INSERT INTO `foo` VALUES (1 1);'];
+        yield 'Unexpected value for tuple (missing comma after string)' => ['INSERT INTO `foo` VALUES ("a" 1);'];
+        yield 'Unexpected value for tuple (missing comma after special string)' => ['INSERT INTO `foo` VALUES ("a\"b" 1);'];
+        yield 'Unexpected value for tuple (missing comma after NULL)' => ['INSERT INTO `foo` VALUES (NULL 1);'];
+    }
+
     // Tests
 
     /**
-     * @testdox Constructor setting a valid input file handler should work
-     * @covers Anonymizer::__construct
-     * @dataProvider providerValidInputFile
+     * @testdox Constructor setting a valid input stream should work
+     * @dataProvider providerValidInputStreams
      */
-    public function testConstructorSettingValidInputFileHandlerShouldWork($input): void
+    public function testConstructorSettingValidInputStreamShouldWork($input): void
     {
         // Prepare
         $validOutput = STDOUT;
-        $validConfig = new Config([]);
+        $validConfig = new Config();
 
         // Execute
         $obj = new Anonymizer($input, $validOutput, $validConfig);
@@ -169,15 +277,14 @@ final class AnonymizerTest extends TestCase
     }
 
     /**
-     * @testdox Constructor setting a valid output file handler should work
-     * @covers Anonymizer::__construct
-     * @dataProvider providerValidOutputFile
+     * @testdox Constructor setting a valid output stream should work
+     * @dataProvider providerValidOutputStreams
      */
-    public function testConstructorSettingValidOutputFileHandlerShouldWork($output): void
+    public function testConstructorSettingValidOutputStreamShouldWork($output): void
     {
         // Prepare
         $validInput = STDIN;
-        $validConfig = new Config([]);
+        $validConfig = new Config();
 
         // Execute
         $obj = new Anonymizer($validInput, $output, $validConfig);
@@ -187,15 +294,14 @@ final class AnonymizerTest extends TestCase
     }
 
     /**
-     * @testdox Constructor setting an invalid input file handler should break
-     * @covers Anonymizer::__construct
-     * @dataProvider providerInvalidInputFiles
+     * @testdox Constructor setting an invalid input stream should break
+     * @dataProvider providerInvalidInputStreams
      */
-    public function testConstructorSetingInvalidInputFileHandlerShouldBreak($input)
+    public function testConstructorSetingInvalidInputStreamShouldBreak($input)
     {
         // Prepare
         $validOutput = STDOUT;
-        $validConfig = new Config([]);
+        $validConfig = new Config();
 
         // Expect
         $this->expectException(\InvalidArgumentException::class);
@@ -205,20 +311,213 @@ final class AnonymizerTest extends TestCase
     }
 
     /**
-     * @testdox Constructor setting an invalid output file handler should break
-     * @covers Anonymizer::__construct
-     * @dataProvider providerInvalidOutputFiles
+     * @testdox Constructor setting an invalid output stream should break
+     * @dataProvider providerInvalidOutputStreams
      */
-    public function testConstructorSetingInvalidOutputFileHandlerShouldBreak($output)
+    public function testConstructorSetingInvalidOutputStreamsShouldBreak($output)
     {
         // Prepare
         $validInput = STDIN;
-        $validConfig = new Config([]);
+        $validConfig = new Config();
 
         // Expect
         $this->expectException(\InvalidArgumentException::class);
 
         // Execute
         new Anonymizer($validInput, $output, $validConfig);
+    }
+
+    /**
+     * @testdox Executing the anonymization with a valid input file should work
+     * @dataProvider providerValidInputStreamsForExecute
+     */
+    public function testExecuteWithValidInputShouldWork($input, $config, $expectedOutputContent)
+    {
+        // Prepare
+        $output = self::openFile('r+');
+        $anonymizer = new Anonymizer($input, $output, $config);
+
+        // Execute
+        $anonymizer->execute();
+
+        // Expect
+        $size = ftell($output);
+        fseek($output, 0, SEEK_SET);
+        $actualOutputContent = fread($output, $size + 1);
+
+        $this->assertSame($expectedOutputContent, $actualOutputContent);
+    }
+
+    /**
+     * @testdox Executing the anonymization with an invalid input content should break
+     * @dataProvider providerInvalidInputContentForExecute
+     */
+    public function testExecuteWithInvalidInputContentShouldBreak($inputContent)
+    {
+        // Prepare
+        $output = self::openFile('r+');
+        $input = self::openFile('r+', true, $inputContent);
+        $config = new Config(['quiet' => true, 'modifications_spec' => ['foo' => []]]);
+        $anonymizer = new Anonymizer($input, $output, $config);
+
+        // Expect
+        $this->expectException(\RuntimeException::class);
+
+        // Execute
+        $anonymizer->execute();
+    }
+
+    /**
+     * @testdox Executing the anonymization with a column modification spec using unique should produce unique values
+     */
+    public function testExecuteWithModificationSpecIncludingUniqueColumn()
+    {
+        // Prepare
+        $inputContent = 'INSERT INTO `foo` VALUES (0);INSERT INTO `foo` VALUES (0);';
+        $input = self::openFile('r+', true, $inputContent);
+        $config = new Config([
+            'quiet' => true,
+            'modifications_spec' => [
+                'foo' => [
+                    '1' => [
+                        'quote' => false,
+                        'format' => 'numberBetween',
+                        'args' => [1, 2],
+                        'unique' => true,
+                    ],
+                ],
+            ],
+        ]);
+        $output = self::openFile('r+');
+        $anonymizer = new Anonymizer($input, $output, $config);
+
+        // Execute
+        $anonymizer->execute();
+
+        // Expect
+        $size = ftell($output);
+        fseek($output, 0, SEEK_SET);
+        $actualOutputContent = fread($output, $size + 1);
+
+        $regex = '/^INSERT INTO `foo` VALUES \((1|2)\);INSERT INTO `foo` VALUES \((1|2)\);$/';
+        $this->assertMatchesRegularExpression($regex, $actualOutputContent);
+
+        preg_match($regex, $actualOutputContent, $matches);
+        $values = [$matches[1], $matches[2]];
+
+        $this->assertContains('1', $values);
+        $this->assertContains('2', $values);
+    }
+
+    /**
+     * @testdox Executing the anonymization with a column modification spec using optional (weight=0%) should produce optional values
+     */
+    public function testExecuteWithModificationSpecIncludingOptionalColumn()
+    {
+        // Prepare
+        $inputContent = 'INSERT INTO `foo` VALUES (0);INSERT INTO `foo` VALUES (0);';
+        $input = self::openFile('r+', true, $inputContent);
+        $config = new Config([
+            'quiet' => true,
+            'modifications_spec' => [
+                'foo' => [
+                    '1' => [
+                        'quote' => false,
+                        'format' => 'randomElement',
+                        'args' => [[1]],
+                        'optional' => true,
+                        'optional_weight' => 0.0,
+                    ],
+                ],
+            ],
+        ]);
+        $output = self::openFile('r+');
+        $anonymizer = new Anonymizer($input, $output, $config);
+
+        // Execute
+        $anonymizer->execute();
+
+        // Expect
+        $size = ftell($output);
+        fseek($output, 0, SEEK_SET);
+        $actualOutputContent = fread($output, $size + 1);
+
+        $regex = '/^INSERT INTO `foo` VALUES \(NULL\);INSERT INTO `foo` VALUES \(NULL\);$/';
+        $this->assertMatchesRegularExpression($regex, $actualOutputContent);
+    }
+
+    /**
+     * @testdox Executing the anonymization with a column modification spec using optional (weight=100%) should not produce optional values
+     */
+    public function testExecuteWithModificationSpecIncludingOptionalColumnWithWeight1()
+    {
+        // Prepare
+        $inputContent = 'INSERT INTO `foo` VALUES (0);INSERT INTO `foo` VALUES (0);';
+        $input = self::openFile('r+', true, $inputContent);
+        $config = new Config([
+            'quiet' => true,
+            'modifications_spec' => [
+                'foo' => [
+                    '1' => [
+                        'quote' => false,
+                        'format' => 'randomElement',
+                        'args' => [[1]],
+                        'optional' => true,
+                        'optional_weight' => 1.0,
+                    ],
+                ],
+            ],
+        ]);
+        $output = self::openFile('r+');
+        $anonymizer = new Anonymizer($input, $output, $config);
+
+        // Execute
+        $anonymizer->execute();
+
+        // Expect
+        $size = ftell($output);
+        fseek($output, 0, SEEK_SET);
+        $actualOutputContent = fread($output, $size + 1);
+
+        $regex = '/^INSERT INTO `foo` VALUES \(1\);INSERT INTO `foo` VALUES \(1\);$/';
+        $this->assertMatchesRegularExpression($regex, $actualOutputContent);
+    }
+
+    /**
+     * @testdox Executing the anonymization with a column modification spec using optional (weight=0%), with default value, should produce optional values
+     */
+    public function testExecuteWithModificationSpecIncludingOptionalColumnWithDefaultValue()
+    {
+        // Prepare
+        $inputContent = 'INSERT INTO `foo` VALUES (0);INSERT INTO `foo` VALUES (0);';
+        $input = self::openFile('r+', true, $inputContent);
+        $config = new Config([
+            'quiet' => true,
+            'modifications_spec' => [
+                'foo' => [
+                    '1' => [
+                        'quote' => false,
+                        'format' => 'randomElement',
+                        'args' => [['1']],
+                        'optional' => true,
+                        'optional_weight' => 0.0,
+                        'optional_default_value' => '2',
+                    ],
+                ],
+            ],
+        ]);
+        $output = self::openFile('r+');
+        $anonymizer = new Anonymizer($input, $output, $config);
+
+        // Execute
+        $anonymizer->execute();
+
+        // Expect
+        $size = ftell($output);
+        fseek($output, 0, SEEK_SET);
+        $actualOutputContent = fread($output, $size + 1);
+
+        $regex = '/^INSERT INTO `foo` VALUES \(2\);INSERT INTO `foo` VALUES \(2\);$/';
+        $this->assertMatchesRegularExpression($regex, $actualOutputContent);
     }
 }
