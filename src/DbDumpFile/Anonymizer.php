@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Printi\DbDumpFile;
 
 use PHPUnit\Framework\Attributes\CodeCoverageIgnore;

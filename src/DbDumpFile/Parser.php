@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Printi\DbDumpFile;
 
 use PHPUnit\Framework\Attributes\CodeCoverageIgnore;
@@ -621,7 +623,7 @@ class Parser
 
     /** @throws \RuntimeException */
     #[CodeCoverageIgnore]
-    protected function throwUnexpectedEofException(string $size): void
+    protected function throwUnexpectedEofException(int $size): void
     {
         throw new \RuntimeException(
             sprintf(
