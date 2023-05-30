@@ -46,6 +46,9 @@ class Config
     /** @var bool Whether to ommit notifications or not */
     private bool $quiet;
 
+    /** @var ?int Integer value to use as seed by Faker instance */
+    private ?int $fakerSeed;
+
     /** @var resource Output stream for notifications */
     private $notificationStream;
 
@@ -84,6 +87,7 @@ class Config
      * @param array $config Associative array with:
      *   string 'locale' Locale of the Faker instance
      *   bool 'quiet' Wheter to omit messages
+     *   ?int 'faker_seed' Integer value used as seed by Faker
      *   resource 'notification_stream' Output stream for notifications
      *   int 'read_buffer_size' Buffer size for reading the input stream
      *   int 'write_buffer_size' Buffer size for writing the output stream
@@ -142,6 +146,15 @@ class Config
     }
 
     /**
+     * Return the attribute fakerSeed
+     * @return ?int
+     */
+    public function getFakerSeed(): ?int
+    {
+        return $this->fakerSeed;
+    }
+
+    /**
      * Return the attribute notificationStream
      * @return resource
      */
@@ -175,6 +188,7 @@ class Config
      * @param array $config Associative array with:
      *   string 'locale' Locale of the Faker instance
      *   bool 'quiet' Wheter to omit messages
+     *   ?int 'faker_seed' Integer value used as seed by Faker
      *   resource 'notification_stream' Output stream for notifications
      *   int 'read_buffer_size' Buffer size for reading the input stream
      *   int 'reserve_output_file_size' Reserves the requested size for the output stream when it is seekable
@@ -201,6 +215,11 @@ class Config
             $config['write_buffer_size'] ?? null,
             self::DEFAULT_WRITE_BUFFER_SIZE,
         );
+
+        $this->fakerSeed = null;
+        if (array_key_exists('faker_seed', $config) && $config['faker_seed'] !== null) {
+            $this->fakerSeed = $this->validatePositiveInt('faker_seed', $config['faker_seed'], 0);
+        }
 
         $this->locale = strval($config['locale'] ?? self::DEFAULT_LOCALE);
         $this->quiet = boolval($config['quiet'] ?? self::DEFAULT_QUIET_FLAG);

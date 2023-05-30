@@ -22,6 +22,10 @@ final class ConfigTest extends TestCase
         yield 'quiet true' => [['quiet' => true]];
         yield 'quiet false' => [['quiet' => false]];
 
+        // faker_seed
+        yield 'faker_seed null' => [['faker_seed' => null]];
+        yield 'faker_seed 1' => [['faker_seed' => 1]];
+
         // notification_stream
         yield 'notification_stream null' => [['notification_stream' => null]];
         yield 'notification_stream STDOUT' => [['notification_stream' => STDOUT]];
@@ -86,6 +90,14 @@ final class ConfigTest extends TestCase
         yield 'reserve_output_file_size []' => [['reserve_output_file_size' => []]];
         yield 'reserve_output_file_size object' => [['reserve_output_file_size' => new \stdClass()]];
 
+        // faker_seed
+        yield 'faker_seed 0' => [['faker_seed' => 0]];
+        yield 'faker_seed false' => [['faker_seed' => false]];
+        yield 'faker_seed 1.1' => [['faker_seed' => 1.1]];
+        yield 'faker_seed "a"' => [['faker_seed' => 'a']];
+        yield 'faker_seed []' => [['faker_seed' => []]];
+        yield 'faker_seed object' => [['faker_seed' => new \stdClass()]];
+
         // modifications_spec
         yield 'modifications_spec with table 0' => [['modifications_spec' => [0 => []]]];
         yield 'modifications_spec with column number "a"' => [['modifications_spec' => ['foo' => ['a' => []]]]];
@@ -120,6 +132,7 @@ final class ConfigTest extends TestCase
         $this->assertSame(Config::DEFAULT_QUIET_FLAG, $obj->getQuiet());
         $this->assertSame(Config::DEFAULT_NOTIFICATION_STREAM, $obj->getNotificationStream());
         $this->assertSame([], $obj->getModificationsSpec());
+        $this->assertSame(null, $obj->getFakerSeed());
     }
 
     /**

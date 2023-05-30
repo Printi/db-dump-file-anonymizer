@@ -166,6 +166,10 @@ class Anonymizer
         }
         if (!isset($this->fakers[$table][$column])) {
             $faker = \Faker\Factory::create($this->getConfig()->getLocale());
+            if ($this->getConfig()->getFakerSeed() !== null) {
+                $faker->seed($this->getConfig()->getFakerSeed());
+            }
+
             $columnModificationSpec = $this->getConfig()->getColumnModificationSpec($table, $column);
 
             if (!empty($columnModificationSpec['unique'])) {
@@ -188,6 +192,7 @@ class Anonymizer
      * Calculate the size used to reserve space for the output stream
      * @return int
      */
+    #[CodeCoverageIgnore]
     protected function calculateOutputSizeReservation(): int
     {
         $inputStreamMeta = stream_get_meta_data($this->inputStream);

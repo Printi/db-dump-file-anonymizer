@@ -65,7 +65,18 @@ final class ParserTest extends TestCase
         yield 'php://stdin with mode "rb"' => [fopen('php://stdin', 'rb')];
     }
 
-    static public function providerInvalidResources(): iterable
+    public static function providerValidConfig(): iterable
+    {
+        yield 'empty config' => [[]];
+
+        yield 'read_buffer_size with value null' => [['read_buffer_size' => null]];
+        yield 'read_buffer_size with value 1' => [['read_buffer_size' => 1]];
+
+        yield 'tables with value null' => [['tables' => null]];
+        yield 'tables with one element' => [['tables' => ['foo']]];
+    }
+
+    public static function providerInvalidResources(): iterable
     {
         yield 'null' => [null];
         yield 'string' => [''];
@@ -76,7 +87,7 @@ final class ParserTest extends TestCase
         yield 'object' => [new \stdClass()];
     }
 
-    static public function providerInvalidInputStreams(): iterable
+    public static function providerInvalidInputStreams(): iterable
     {
         yield from self::providerInvalidResources();
 
@@ -96,6 +107,44 @@ final class ParserTest extends TestCase
 
         yield 'STDOUT' => [STDOUT];
         yield 'STDERR' => [STDERR];
+    }
+
+    public static function providerInvalidConfig(): iterable
+    {
+        yield 'read_buffer_size with value false' => [['read_buffer_size' => false]];
+        yield 'read_buffer_size with value 1.1' => [['read_buffer_size' => 1.1]];
+        yield 'read_buffer_size with value "a"' => [['read_buffer_size' => 'a']];
+        yield 'read_buffer_size with value []' => [['read_buffer_size' => []]];
+        yield 'read_buffer_size with value object' => [['read_buffer_size' => new \stdClass()]];
+
+        yield 'tables with value false' => [['tables' => false]];
+        yield 'tables with value 1' => [['tables' => 1]];
+        yield 'tables with value 1.1' => [['tables' => 1.1]];
+        yield 'tables with value "a"' => [['tables' => 'a']];
+        yield 'tables with value object' => [['tables' => new \stdClass()]];
+    }
+
+    public static function providerInvalidInputContent(): iterable
+    {
+        yield 'Unexpected end of file (missing semicolon for insert statement)' => ['INSERT INTO `foo` VALUES ()'];
+        yield 'Unexpected end of file (missing open parentheses for tuple)' => ['INSERT INTO `foo` VALUES 1);'];
+        yield 'Unexpected end of file (missing close parentheses for tuple)' => ['INSERT INTO `foo` VALUES (1,'];
+        yield 'Unexpected end of file (missing close quotes)' => ['INSERT INTO `foo` VALUES ("'];
+        yield 'Unexpected end of file (missing comma after number)' => ['INSERT INTO `foo` VALUES (1'];
+        yield 'Unexpected end of file (missing comma after string #1)' => ['INSERT INTO `foo` VALUES ("a"'];
+        yield 'Unexpected end of file (missing comma after string #2)' => ["INSERT INTO `foo` VALUES ('a'"];
+        yield 'Unexpected end of file (missing comma after NULL)' => ['INSERT INTO `foo` VALUES (NULL'];
+
+        yield 'Unexpected token (missing semicolon for insert statement)' => ['INSERT INTO `foo` VALUES (1) INSERT INTO `foo` VALUES (2);'];
+        yield 'Unexpected token (missing value for tuple)' => ['INSERT INTO `foo` VALUES ();'];
+        yield 'Unexpected token (unexpected tuple value)' => ['INSERT INTO `foo` VALUES (a);'];
+        yield 'Unexpected token (invalid token after number "1a")' => ['INSERT INTO `foo` VALUES (1a);'];
+        yield 'Unexpected token (invalid token after number "1.a")' => ['INSERT INTO `foo` VALUES (1.a);'];
+        yield 'Unexpected token (invalid token after number "1.1a")' => ['INSERT INTO `foo` VALUES (1.1a);'];
+        yield 'Unexpected token (missing comma after number)' => ['INSERT INTO `foo` VALUES (1 1);'];
+        yield 'Unexpected token (missing comma after string)' => ['INSERT INTO `foo` VALUES ("a" 1);'];
+        yield 'Unexpected token (missing comma after special string)' => ['INSERT INTO `foo` VALUES ("a\"b" 1);'];
+        yield 'Unexpected token (missing comma after NULL)' => ['INSERT INTO `foo` VALUES (NULL 1);'];
     }
 
     // Tests
@@ -133,6 +182,38 @@ final class ParserTest extends TestCase
     }
 
     /**
+     * @testdox Constructor setting a valid config should work
+     * @dataProvider providerValidConfig
+     */
+    public function testConstructorSettingValidConfigShouldWork($config): void
+    {
+        // Prepare
+        $validInput = STDIN;
+
+        // Execute
+        $obj = new Parser($validInput, $config);
+
+        // Expect
+        $this->assertInstanceOf(Parser::class, $obj);
+    }
+
+    /**
+     * @testdox Constructor setting an invalid config should break
+     * @dataProvider providerInvalidConfig
+     */
+    public function testConstructorSettingInvalidConfigShouldBreak($config): void
+    {
+        // Prepare
+        $validInput = STDIN;
+
+        // Expect
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Execute
+        new Parser($validInput, $config);
+    }
+
+    /**
      * @testdox Testing the main parser method should work
      */
     public function testParseTokens()
@@ -158,6 +239,7 @@ EOF;
 
         // Execute
         $iterator = $parser->parseTokens();
+        $tokens = iterator_to_array($iterator);
 
         // Expect
         $this->assertInstanceOf(\Iterator::class, $iterator);
@@ -249,6 +331,26 @@ EOF;
             ['type' => Parser::TYPE_CHUNK_TOKEN, 'raw' => "\n"],
             ['type' => Parser::TYPE_CHUNK_TOKEN, 'raw' => '-- Other comment'],
         ];
-        $this->assertSame($expectedTokens, iterator_to_array($iterator));
+        $this->assertSame($expectedTokens, $tokens);
+    }
+
+    /**
+     * @testdox Testing the main parser method with invalid input content should break
+     * @dataProvider providerInvalidInputContent
+     */
+    public function testExecuteWithInvalidInputContentShouldBreak($fileContent)
+    {
+        // Prepare
+        $input = self::openFile('r+', true, $fileContent);
+        $config = ['tables' => ['foo']];
+        $parser = new Parser($input, $config);
+
+        // Expect
+        $this->expectException(\RuntimeException::class);
+
+        // Execute
+        foreach ($parser->parseTokens() as $token) {
+            // do nothing (only traverse the iterator to throw the expected exception)
+        }
     }
 }

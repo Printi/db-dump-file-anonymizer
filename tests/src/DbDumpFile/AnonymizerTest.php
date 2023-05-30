@@ -164,6 +164,23 @@ final class AnonymizerTest extends TestCase
             'expectedOutputContent' => 'foo',
         ];
 
+        yield 'simple file with insert' => [
+            'input' => self::openFile('r+', true, 'INSERT INTO `foo` VALUES (1);'),
+            'config' => new Config([
+                'quiet' => true,
+                'modifications_spec' => [
+                    'foo' => [
+                        '1' => [
+                            'quote' => false,
+                            'format' => 'passthrough',
+                            'args' => ['2'],
+                        ],
+                    ],
+                ],
+            ]),
+            'expectedOutputContent' => 'INSERT INTO `foo` VALUES (2);',
+        ];
+
         $inputContent = <<<'EOF'
 -- Some comment
 INSERT INTO `foo` VALUES ('a\'b', 1, -1, 1.1, 1e1, NULL, NULL, 'x\'y'), ('c', 1000, -1000, 1000.1, 1000e1, NULL, NULL, 'z'),
@@ -186,7 +203,7 @@ INSERT INTO `baz``baz` VALUES (1);
 
 insert into `foo` values ('new value',2,-2,2.2,2e2,NULL,NULL,'x\'y'), ('new value',2,-2,2.2,2e2,NULL,NULL,'z');
 EOF;
-        yield 'file with inserts' => [
+        yield 'complex file with inserts' => [
             'input' => self::openFile('r+', true, $inputContent),
             'config' => new Config([
                 'quiet' => true,
@@ -194,38 +211,38 @@ EOF;
                     'foo' => [
                         '1' => [
                             'quote' => true,
-                            'format' => 'randomElement',
-                            'args' => [['new value']],
+                            'format' => 'passthrough',
+                            'args' => ['new value'],
                         ],
                         '2' => [
                             'quote' => false,
-                            'format' => 'randomElement',
-                            'args' => [['2']],
+                            'format' => 'passthrough',
+                            'args' => ['2'],
                         ],
                         '3' => [
                             'quote' => false,
-                            'format' => 'randomElement',
-                            'args' => [['-2']],
+                            'format' => 'passthrough',
+                            'args' => ['-2'],
                         ],
                         '4' => [
                             'quote' => false,
-                            'format' => 'randomElement',
-                            'args' => [['2.2']],
+                            'format' => 'passthrough',
+                            'args' => ['2.2'],
                         ],
                         '5' => [
                             'quote' => false,
-                            'format' => 'randomElement',
-                            'args' => [['2e2']],
+                            'format' => 'passthrough',
+                            'args' => ['2e2'],
                         ],
                         '6' => [
                             'quote' => true,
-                            'format' => 'randomElement',
-                            'args' => [['other value']],
+                            'format' => 'passthrough',
+                            'args' => ['other value'],
                         ],
                         '7' => [
                             'quote' => false,
-                            'format' => 'randomElement',
-                            'args' => [[null]],
+                            'format' => 'passthrough',
+                            'args' => [null],
                         ],
                     ],
                 ],
@@ -233,28 +250,6 @@ EOF;
             'expectedOutputContent' => $expectedOutputContent,
         ];
         unset($fileContent, $expectedOutputContent);
-    }
-
-    static public function providerInvalidInputContentForExecute(): iterable
-    {
-        yield 'Unexpected end of file (missing semicolon for insert statement)' => ['INSERT INTO `foo` VALUES ()'];
-        yield 'Unexpected end of file (missing close parentheses for tuple)' => ['INSERT INTO `foo` VALUES (1,'];
-        yield 'Unexpected end of file (missing close quotes)' => ['INSERT INTO `foo` VALUES ("'];
-        yield 'Unexpected end of file (missing comma after number)' => ['INSERT INTO `foo` VALUES (1'];
-        yield 'Unexpected end of file (missing comma after string #1)' => ['INSERT INTO `foo` VALUES ("a"'];
-        yield 'Unexpected end of file (missing comma after string #2)' => ["INSERT INTO `foo` VALUES ('a'"];
-        yield 'Unexpected end of file (missing comma after NULL)' => ['INSERT INTO `foo` VALUES (NULL'];
-
-        yield 'Unexpected value for tuple (missing value)' => ['INSERT INTO `foo` VALUES ();'];
-        yield 'Unexpected value for tuple (value "a" without quotes)' => ['INSERT INTO `foo` VALUES (a);'];
-        yield 'Unexpected value for tuple (invalid number: "1a")' => ['INSERT INTO `foo` VALUES (1a);'];
-        yield 'Unexpected value for tuple (invalid number: "1.a")' => ['INSERT INTO `foo` VALUES (1.a);'];
-        yield 'Unexpected value for tuple (invalid number: "1.1a")' => ['INSERT INTO `foo` VALUES (1.1a);'];
-
-        yield 'Unexpected value for tuple (missing comma after number)' => ['INSERT INTO `foo` VALUES (1 1);'];
-        yield 'Unexpected value for tuple (missing comma after string)' => ['INSERT INTO `foo` VALUES ("a" 1);'];
-        yield 'Unexpected value for tuple (missing comma after special string)' => ['INSERT INTO `foo` VALUES ("a\"b" 1);'];
-        yield 'Unexpected value for tuple (missing comma after NULL)' => ['INSERT INTO `foo` VALUES (NULL 1);'];
     }
 
     // Tests
@@ -349,22 +344,40 @@ EOF;
     }
 
     /**
-     * @testdox Executing the anonymization with an invalid input content should break
-     * @dataProvider providerInvalidInputContentForExecute
+     * @testdox Executing the anonymization with small  buffers should work
      */
-    public function testExecuteWithInvalidInputContentShouldBreak($inputContent)
+    public function testExecuteWithSmallBuffersShouldWork()
     {
         // Prepare
+        $input = self::openFile('r+', true, 'INSERT INTO `foo` VALUES (1);');
         $output = self::openFile('r+');
-        $input = self::openFile('r+', true, $inputContent);
-        $config = new Config(['quiet' => true, 'modifications_spec' => ['foo' => []]]);
+        $config = new Config([
+            'read_buffer_size' => 1,
+            'write_buffer_size' => 1,
+            'quiet' => true,
+            'modifications_spec' => [
+                'foo' => [
+                    '1' => [
+                        'quote' => false,
+                        'format' => 'passthrough',
+                        'args' => ['2'],
+                    ],
+                ],
+            ],
+        ]);
         $anonymizer = new Anonymizer($input, $output, $config);
-
-        // Expect
-        $this->expectException(\RuntimeException::class);
 
         // Execute
         $anonymizer->execute();
+
+        // Expect
+        $size = ftell($output);
+        fseek($output, 0, SEEK_SET);
+        $actualOutputContent = fread($output, $size + 1);
+
+        $expectedOutputContent = 'INSERT INTO `foo` VALUES (2);';
+
+        $this->assertSame($expectedOutputContent, $actualOutputContent);
     }
 
     /**
@@ -377,6 +390,7 @@ EOF;
         $input = self::openFile('r+', true, $inputContent);
         $config = new Config([
             'quiet' => true,
+            'faker_seed' => 1, // This seed forces the random values of Faker to be always the same
             'modifications_spec' => [
                 'foo' => [
                     '1' => [
@@ -399,14 +413,8 @@ EOF;
         fseek($output, 0, SEEK_SET);
         $actualOutputContent = fread($output, $size + 1);
 
-        $regex = '/^INSERT INTO `foo` VALUES \((1|2)\);INSERT INTO `foo` VALUES \((1|2)\);$/';
+        $regex = '/^INSERT INTO `foo` VALUES \(2\);INSERT INTO `foo` VALUES \(1\);$/';
         $this->assertMatchesRegularExpression($regex, $actualOutputContent);
-
-        preg_match($regex, $actualOutputContent, $matches);
-        $values = [$matches[1], $matches[2]];
-
-        $this->assertContains('1', $values);
-        $this->assertContains('2', $values);
     }
 
     /**
@@ -423,8 +431,8 @@ EOF;
                 'foo' => [
                     '1' => [
                         'quote' => false,
-                        'format' => 'randomElement',
-                        'args' => [[1]],
+                        'format' => 'passthrough',
+                        'args' => [1],
                         'optional' => true,
                         'optional_weight' => 0.0,
                     ],
@@ -460,8 +468,8 @@ EOF;
                 'foo' => [
                     '1' => [
                         'quote' => false,
-                        'format' => 'randomElement',
-                        'args' => [[1]],
+                        'format' => 'passthrough',
+                        'args' => [1],
                         'optional' => true,
                         'optional_weight' => 1.0,
                     ],
@@ -497,8 +505,8 @@ EOF;
                 'foo' => [
                     '1' => [
                         'quote' => false,
-                        'format' => 'randomElement',
-                        'args' => [['1']],
+                        'format' => 'passthrough',
+                        'args' => ['1'],
                         'optional' => true,
                         'optional_weight' => 0.0,
                         'optional_default_value' => '2',

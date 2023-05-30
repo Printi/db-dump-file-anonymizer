@@ -137,13 +137,13 @@ class Parser
      */
     protected function setConfig(array $config): void
     {
-        $this->config = array_merge(
-            [
-                'read_buffer_size' => self::DEFAULT_READ_BUFFER_SIZE,
-                'tables' => [],
-            ],
-            $config
-        );
+        $this->config = $config;
+        if (!array_key_exists('read_buffer_size', $this->config) || is_null($this->config['read_buffer_size'])) {
+            $this->config['read_buffer_size'] = self::DEFAULT_READ_BUFFER_SIZE;
+        }
+        if (!array_key_exists('tables', $this->config) || is_null($this->config['tables'])) {
+            $this->config['tables'] = [];
+        }
 
         if (!is_int($this->config['read_buffer_size'])) {
             $this->throwInvalidTypeException('config key "read_buffer_size"', 'int', gettype($this->config['read_buffer_size']));
