@@ -74,4 +74,4 @@ USER db-anonymizer
 
 RUN composer check-platform-reqs --no-dev --no-interaction --no-scripts --no-cache --working-dir=/app
 
-ENTRYPOINT ["php", "/app/bin/anonymize-db-dump"]
+ENTRYPOINT ["php", "-d", "display_startup_errors=0", "-d", "display_errors=0", "/app/bin/anonymize-db-dump"]
